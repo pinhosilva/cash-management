@@ -4,6 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
+| **Versão**              | 1.0.0 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1605,3 +1606,13 @@ publica quando o Kafka volta. Entries **não cai** — reforça o RNF-01.
 O **event store é a fonte da verdade**; read model e Kafka são **reconstruíveis
 por replay**. Logo o RPO crítico é o do event store; o RTO do Balance é o tempo de
 rebuild por replay. *Status: 🟡 estratégia esboçada; RPO/RTO numéricos = decisão de operação.*
+## Histórico de Revisões
+
+**Versionamento do documento (SemVer):** **PATCH** = correção/ajuste pontual ·
+**MINOR** = nova seção ou conteúdo relevante · **MAJOR** = reestruturação. Toda
+alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho) e
+**registra uma linha** na tabela abaixo.
+
+| Versão | Data | Descrição |
+|---|---|---|
+| 1.0.0 | 2026-06-26 | Versão inicial consolidada do design doc. |
