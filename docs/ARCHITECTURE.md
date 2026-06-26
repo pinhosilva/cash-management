@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.1 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.2 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -785,7 +785,7 @@ código no [README do Entries](../src/CashManagement.Entries/README.md).
 | Padrão | Onde | Por quê |
 |---|---|---|
 | **Command** (GoF) | `PostCreditCommand` + handler | Encapsula a intenção; pode ser validada/rejeitada antes de virar fato |
-| **Mediator** (GoF) | `CommandDispatcher` próprio (enxuto) | Desacopla emissor do handler, **captura o comando e devolve resultado** (`Send<TResult>`); ponto único para *cross-cutting* (log, validação, idempotência) |
+| **Mediator** (GoF) | `CommandDispatcher` próprio (enxuto) | Desacopla emissor do handler, **captura o comando e devolve resultado** (`Send<TCommand, TResult>`); ponto único para *cross-cutting* (log, validação, idempotência) |
 | **Repository** (DDD) | `IEntryRepository` | Abstrai o event store; o domínio não sabe que é SQL |
 | **Factory** (GoF) | `Entry.PostCredit(...)` e a reconstrução por replay | Criação consistente já emitindo o evento |
 | **Domain Event** (DDD) | os `*Event` | Base do Event Sourcing e da integração via Kafka |
@@ -822,7 +822,7 @@ fluxo.
 **Identidade e retorno do comando:** o `aggregateId` é um `Guid` **gerado na
 camada de aplicação** (no handler), nunca pelo banco — ele é o *stream id* e a
 *partition key*, então precisa existir **antes** de persistir. O
-`CommandDispatcher` **devolve esse id** num `Result<Guid>` (`Send<TResult>`): uma criação retorna o
+`CommandDispatcher` **devolve esse id** num `Result<Guid>` (`Send<TCommand, TResult>` — **genérico sobre o tipo concreto do comando**, resolvido por DI **sem reflection**): uma criação retorna o
 **id** (não o agregado — não se vaza o *write model*; quem quer o estado
 completo consulta o read side). Num *retry* com a mesma `Idempotency-Key`, o id
 devolvido é o **original** — a deduplicação é um *behavior* em volta do `Send`,
@@ -1629,5 +1629,6 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.2 | 2026-06-26 | Dispatcher `Send<TCommand, TResult>` reflection-free (resolve o handler por DI), em vez de `Send<TResult>(ICommand<TResult>)` — coerência com o cuidado "sem reflection" (§5.10/T05). |
 | 1.0.1 | 2026-06-26 | Convenção de nomes de branch (feature/release/hotfix) na §9.2. |
 | 1.0.0 | 2026-06-26 | Versão inicial consolidada do design doc. |

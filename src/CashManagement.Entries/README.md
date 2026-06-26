@@ -125,7 +125,8 @@ public interface ICommandHandler<TCommand, TResult> where TCommand : ICommand<TR
 
 public interface ICommandDispatcher
 {
-    Task<Result<TResult>> Send<TResult>(ICommand<TResult> command);
+    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command)
+        where TCommand : ICommand<TResult>;
 }
 ```
 
