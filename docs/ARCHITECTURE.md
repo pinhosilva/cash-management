@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.0 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.1 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1429,6 +1429,20 @@ Regras do fluxo: ao fechar, uma `release/*` faz **merge em `main`** (gerando a
 develop), para a correção nunca se perder. `main` e `develop` são **protegidas**
 — merge apenas com a esteira verde e via PR revisado.
 
+**Convenção de nomes de branch:**
+
+| Tipo | Padrão | Exemplo | Vida |
+|---|---|---|---|
+| Permanente | `main`, `develop` | — | longa |
+| Feature | `feature/<tarefa>-<slug>` | `feature/T01-setup` | efêmera (sai de `develop`, PR de volta) |
+| Release | `release/X.Y.Z` | `release/0.1.0` | efêmera (versão-alvo no nome) |
+| Hotfix | `hotfix/X.Y.Z` | `hotfix/0.1.1` | efêmera (sai de `main`) |
+
+As branches de **feature** mapeiam 1:1 às tarefas do [`TASKS.md`](./TASKS.md)
+(ex.: `feature/T01-setup`, `feature/T02-seed-work`). **Release** e **hotfix**
+carregam a **versão-alvo** no nome — não existe uma branch `release` única e fixa;
+cada versão tem a sua, criada e descartada por ciclo.
+
 **Versionamento (SemVer via GitVersion):** a versão **não é digitada à mão** —
 sai dos **commits semânticos** + da branch:
 
@@ -1615,4 +1629,5 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.1 | 2026-06-26 | Convenção de nomes de branch (feature/release/hotfix) na §9.2. |
 | 1.0.0 | 2026-06-26 | Versão inicial consolidada do design doc. |
