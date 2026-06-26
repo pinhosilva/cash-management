@@ -1,0 +1,27 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# Environment / secrets
+.env
+*.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ferramentas de IA / assistentes (não fazem parte do projeto)
+.claude/
+CLAUDE.md
