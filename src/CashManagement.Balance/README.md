@@ -1,0 +1,55 @@
+# CashManagement.Balance
+
+Serviço de **Consolidado Diário** (Balance) do domínio Cash Management.
+Responsável por consumir os eventos publicados por `CashManagement.Entries` e
+manter uma projeção (read model) do saldo diário consolidado.
+
+Ver justificativa arquitetural completa em
+[`/docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md).
+
+## Estrutura (Clean Architecture simplificada)
+
+Este serviço não possui lógica de negócio rica — é essencialmente um
+**projetor de eventos** (lado de consulta do CQRS). Por isso, não há camada de
+`Domain` separada: não existem agregados, invariantes ou regras complexas a
+proteger, apenas a construção de uma projeção a partir de eventos já
+validados pelo serviço de Entries. Manter uma camada de Domain vazia aqui
+seria estrutura por estrutura, sem ganho real — daí a estrutura ser
+deliberadamente mais simples (3 camadas) e não um espelho do Entries.
+
+```
+CashManagement.Balance.Application/    # Lógica de projeção e consulta
+├── Queries/                           # Queries (ex: GetDailyBalanceQuery)
+├── DTOs/                              # Objetos de saída (ex: DailyBalanceDto)
+└── Handlers/                          # Handlers que processam eventos consumidos do Kafka
+                                        # (ex: CreditPostedEventHandler, DebitPostedEventHandler)
+
+CashManagement.Balance.Infrastructure/ # Implementações concretas
+├── Persistence/                       # Acesso ao MongoDB (read model)
+└── Messaging/                         # Consumer Kafka
+
+CashManagement.Balance.Api/            # Camada de entrada
+├── Controllers/                       # Endpoints REST (ex: GET /balances/{date})
+└── Middleware/                        # Autenticação JWT, tratamento de erros
+
+tests/
+├── CashManagement.Balance.UnitTests/         # Testes de application (isolados)
+└── CashManagement.Balance.IntegrationTests/  # Testes de API/infra (Mongo, Kafka)
+```
+
+### Regra de dependência
+
+`Api → Application`, com `Infrastructure` implementando interfaces definidas
+em `Application` (inversão de dependência).
+
+### Convenção de nomenclatura
+
+Este serviço apenas **consome** eventos publicados por
+`CashManagement.Entries` — não cria Commands nem Events próprios. Os nomes de
+evento consumidos (`CreditPostedEvent`, `DebitPostedEvent`, etc.) seguem a
+mesma convenção e vocabulário ubíquo definidos em
+[`/docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md#13-linguagem-ubíqua-ubiquitous-language-e-convenções-de-nomenclatura).
+
+## Como rodar localmente
+
+Ver instruções na raiz do repositório (`docker-compose up --build`).
