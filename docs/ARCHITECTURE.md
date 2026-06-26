@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.2 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.3 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -97,6 +97,14 @@ refletindo a natureza de cada um:
   já validados pelo Entries em um read model. Manter uma camada de Domain
   vazia apenas para espelhar o outro serviço seria estrutura sem propósito.
 
+Dentro da camada de **Application**, a organização é por **vertical slice**: cada
+caso de uso ganha uma pasta em `Features/` reunindo command + handler + validator
+(+ DTOs) — *o que muda junto fica junto* (alta coesão). Building blocks de CQRS
+ficam em `Abstractions/` e portas em `Interfaces/`. O **Domain**, por sua vez,
+segue organizado por tipo de DDD (`Aggregates/`, `Events/`, `ValueObjects/`,
+`Repositories/`, `SeedWork/`) — vertical slice é conceito da camada de aplicação,
+não do modelo de domínio.
+
 Detalhes de cada estrutura estão documentados no `README.md` de cada serviço
 (`/src/CashManagement.Entries/README.md` e
 `/src/CashManagement.Balance/README.md`).
@@ -127,8 +135,8 @@ tabela, antes de entrar no código.
 
 #### Commands — imperativo (uma intenção, pode ser rejeitada)
 
-Commands representam uma intenção de ação, vivem em
-`CashManagement.Entries.Application/Commands/`, e são nomeados no
+Commands representam uma intenção de ação, vivem na pasta do caso de uso
+(vertical slice) em `CashManagement.Entries.Application/Features/<UseCase>/`, e são nomeados no
 **imperativo**, pois ainda não aconteceram e podem ser rejeitados pelo
 Aggregate (ex: dados inválidos, ou estorno de um lançamento já estornado):
 
@@ -1082,7 +1090,7 @@ o canal de eventos:
 #### Proteção contra abusos e ataques
 
 - **Validação de entrada:** comandos validados na camada de Application
-  (`Validators/`); entrada inválida vira um `Result` com `ErrorType.Validation`
+  (validator na *feature folder* do caso de uso); entrada inválida vira um `Result` com `ErrorType.Validation`
   → `400` (§4.4), **sem exceção** e sem chegar ao domínio.
 - **Rate limiting / *throttling*:** no *gateway*/API, protege contra abuso e
   ajuda a manter o envelope de 50 req/s (RNF-02).
@@ -1629,6 +1637,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.3 | 2026-06-26 | Organização da camada de Application por **vertical slice** (`Features/<UseCase>/` reunindo command + handler + validator), em vez de pastas por tipo (`Commands/`, `Validators/`) — §1.2/§1.3. |
 | 1.0.2 | 2026-06-26 | Dispatcher `Send<TCommand, TResult>` reflection-free (resolve o handler por DI), em vez de `Send<TResult>(ICommand<TResult>)` — coerência com o cuidado "sem reflection" (§5.10/T05). |
 | 1.0.1 | 2026-06-26 | Convenção de nomes de branch (feature/release/hotfix) na §9.2. |
 | 1.0.0 | 2026-06-26 | Versão inicial consolidada do design doc. |

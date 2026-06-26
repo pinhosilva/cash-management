@@ -18,11 +18,10 @@ seria estrutura por estrutura, sem ganho real — daí a estrutura ser
 deliberadamente mais simples (3 camadas) e não um espelho do Entries.
 
 ```
-CashManagement.Balance.Application/    # Lógica de projeção e consulta
-├── Queries/                           # Queries (ex: GetDailyBalanceQuery)
-├── DTOs/                              # Objetos de saída (ex: DailyBalanceDto)
-└── Handlers/                          # Handlers que processam eventos consumidos do Kafka
-                                        # (ex: CreditPostedEventHandler, DebitPostedEventHandler)
+CashManagement.Balance.Application/    # Projeção e consulta (organizadas por vertical slice)
+└── Features/                          # Uma pasta por caso de uso
+    ├── BalanceProjection/            # Handlers que projetam eventos do Kafka (ex: CreditPostedEventHandler)
+    └── GetDailyBalance/              # Query + handler + DTO da consulta (ex: GetDailyBalanceQuery, DailyBalanceDto)
 
 CashManagement.Balance.Infrastructure/ # Implementações concretas
 ├── Persistence/                       # Acesso ao MongoDB (read model)
