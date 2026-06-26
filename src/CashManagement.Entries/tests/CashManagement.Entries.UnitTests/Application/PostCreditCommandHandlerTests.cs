@@ -1,6 +1,5 @@
-using CashManagement.Entries.Application.Commands;
+using CashManagement.Entries.Application.Features.PostCredit;
 using CashManagement.Entries.Application.Interfaces;
-using CashManagement.Entries.Application.Validators;
 using CashManagement.Entries.Domain.Aggregates;
 using CashManagement.Entries.Domain.Events;
 using CashManagement.Entries.Domain.Repositories;

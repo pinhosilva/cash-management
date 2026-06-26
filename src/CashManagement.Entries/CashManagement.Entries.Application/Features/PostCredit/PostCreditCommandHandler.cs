@@ -1,12 +1,11 @@
 using CashManagement.Entries.Application.Abstractions;
 using CashManagement.Entries.Application.Interfaces;
-using CashManagement.Entries.Application.Validators;
 using CashManagement.Entries.Domain.Aggregates;
 using CashManagement.Entries.Domain.Repositories;
 using CashManagement.Entries.Domain.SeedWork;
 using CashManagement.Entries.Domain.ValueObjects;
 
-namespace CashManagement.Entries.Application.Commands;
+namespace CashManagement.Entries.Application.Features.PostCredit;
 
 /// <summary>
 /// Orquestra o registro de um crédito: valida → gera id → cria o agregado →

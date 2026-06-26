@@ -1,7 +1,6 @@
-using CashManagement.Entries.Application.Commands;
 using CashManagement.Entries.Domain.SeedWork;
 
-namespace CashManagement.Entries.Application.Validators;
+namespace CashManagement.Entries.Application.Features.PostCredit;
 
 /// <summary>
 /// Valida o <see cref="PostCreditCommand"/> antes de tocar o domínio. Falha
