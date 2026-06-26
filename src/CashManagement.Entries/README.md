@@ -20,11 +20,11 @@ CashManagement.Entries.Domain/         # Núcleo do domínio — sem dependênci
 ├── Events/                            # Domain Events (ex: CreditPostedEvent, DebitPostedEvent)
 └── Repositories/                      # Interfaces de repositório (ex: IEntryRepository)
 
-CashManagement.Entries.Application/    # Casos de uso, orquestração
-├── Commands/                          # Command Handlers (ex: PostCreditCommand)
-├── DTOs/                              # Objetos de entrada/saída da camada de aplicação
-├── Validators/                        # Validação de comandos
-└── Interfaces/                        # Contratos consumidos pela Application (ex: IEventPublisher)
+CashManagement.Entries.Application/    # Casos de uso (organizados por vertical slice)
+├── Abstractions/                      # Building blocks de CQRS (ICommand, ICommandHandler, ICommandDispatcher)
+├── Interfaces/                        # Portas consumidas pela Application (ex: IIdGenerator, IEventPublisher)
+└── Features/                          # Uma pasta por caso de uso (vertical slice)
+    └── PostCredit/                    # Command + Handler + Validator (+ DTOs) do caso de uso, juntos
 
 CashManagement.Entries.Infrastructure/ # Implementações concretas
 ├── Persistence/                       # Event Store (SQL Server) — DbContext, migrations, tabela outbox
@@ -39,6 +39,12 @@ tests/
 ├── CashManagement.Entries.UnitTests/         # Testes de domínio e application (isolados)
 └── CashManagement.Entries.IntegrationTests/  # Testes de API/infra (banco, Kafka)
 ```
+
+> **Organização por vertical slice:** dentro da Application, cada caso de uso vive
+> numa pasta em `Features/` reunindo command, handler, validator (e DTOs) — o que
+> muda junto fica junto (alta coesão). Os building blocks de CQRS ficam em
+> `Abstractions/` e as portas em `Interfaces/`. O **Domain** continua organizado
+> por tipo de DDD (vertical slice é conceito da camada de aplicação).
 
 ### Building blocks (próprios)
 
@@ -125,7 +131,8 @@ public interface ICommandHandler<TCommand, TResult> where TCommand : ICommand<TR
 
 public interface ICommandDispatcher
 {
-    Task<Result<TResult>> Send<TResult>(ICommand<TResult> command);
+    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command)
+        where TCommand : ICommand<TResult>;
 }
 ```
 

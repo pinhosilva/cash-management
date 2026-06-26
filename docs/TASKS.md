@@ -121,7 +121,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - *When* valor **não-positivo** → o handler retorna `Result` de **falha** (`ErrorType.Validation`), **sem** publicar evento e **sem** lançar exceção.
 
 **Implementar (em `Entries.Application`):**
-- Abstrações: `ICommand<TResult>`, `ICommandHandler<TCommand,TResult>` (`Task<Result<TResult>> HandleAsync`), `ICommandDispatcher` (`Task<Result<TResult>> Send<TResult>(ICommand<TResult>)`). Dispatcher próprio, resolve handler via DI.
+- Abstrações: `ICommand<TResult>`, `ICommandHandler<TCommand,TResult>` (`Task<Result<TResult>> HandleAsync`), `ICommandDispatcher` (`Task<Result<TResult>> Send<TCommand, TResult>(TCommand)` — genérico sobre o comando, **reflection-free**). Dispatcher próprio, resolve handler via DI.
 - `IIdGenerator` (interface) + impl simples (`Guid.NewGuid()`) na Infra/Api.
 - `PostCreditCommand(decimal Amount, DateTime OccurredAt) : ICommand<Guid>`.
 - **Validator** do comando (valor positivo, data válida) → devolve `Result` de falha (`ErrorType.Validation`) antes de tocar o domínio.
