@@ -767,8 +767,9 @@ O **Transactional Outbox** elimina esse risco:
 > atomicidade para publicar de forma confiável. O UoW é o que torna o passo 1
 > atômico — sem ele, não há Outbox correto. Na prática, o `IEventStore.Append`
 > **encena** os eventos do agregado **e** a linha de `outbox`; o
-> `IUnitOfWork.CommitAsync` grava tudo numa transação (commit acionado uma vez
-> pelo behavior transacional do dispatcher, §5.10) — e o relay cuida do resto.
+> `IUnitOfWork.CommitAsync` grava tudo numa transação (commit acionado uma vez na
+> fronteira do caso de uso — a request, ou um orquestrador num "pacotão" — fora do
+> dispatcher, que só despacha) — e o relay cuida do resto.
 
 Isso garante **"gravou ⇒ será publicado"**, e casa com a outra ponta: o
 consumidor do Balance já deduplica por `event.id` (§4.3), então o reenvio do
@@ -796,7 +797,7 @@ código no [README do Entries](../src/CashManagement.Entries/README.md).
 | **Command** (GoF) | `PostCreditCommand` + handler | Encapsula a intenção; pode ser validada/rejeitada antes de virar fato |
 | **Mediator** (GoF) | `CommandDispatcher` próprio (enxuto) | Desacopla emissor do handler, **captura o comando e devolve resultado** (`Send<TCommand, TResult>`); ponto único para *cross-cutting* (log, validação, idempotência) |
 | **Repository / Event Store** (DDD) | `IEventStore` | Abstrai o event store (append + replay); o domínio não sabe que é SQL |
-| **Unit of Work** (PoEAA) | `IUnitOfWork` | Commit atômico (eventos + outbox); acionado 1× pelo behavior transacional do dispatcher |
+| **Unit of Work** (PoEAA) | `IUnitOfWork` | Commit atômico (eventos + outbox); acionado 1× na fronteira do caso de uso (request/orquestrador), fora do dispatcher (SRP) |
 | **Factory** (GoF) | `Entry.PostCredit(...)` e a reconstrução por replay | Criação consistente já emitindo o evento |
 | **Domain Event** (DDD) | os `*Event` | Base do Event Sourcing e da integração via Kafka |
 | **Value Object** (DDD) | `Money`, `EntryType` | Igualdade por valor; evita *primitive obsession* |
@@ -1639,7 +1640,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
-| 1.0.4 | 2026-06-26 | Persistência separada em `IEventStore` (append + replay, outbox genérica num só lugar) e `IUnitOfWork` (commit atômico isolado, via behavior transacional do dispatcher), no lugar do `IEntryRepository.SaveAsync` "gordo" — §5.8/§5.9/§5.10. |
+| 1.0.4 | 2026-06-26 | Persistência separada em `IEventStore` (append + replay, outbox genérica num só lugar) e `IUnitOfWork` (commit atômico isolado, acionado na fronteira do caso de uso — request/orquestrador —, **não** no dispatcher, que mantém responsabilidade única de despachar), no lugar do `IEntryRepository.SaveAsync` "gordo" — §5.8/§5.9/§5.10. |
 | 1.0.3 | 2026-06-26 | Organização da camada de Application por **vertical slice** (`Features/<UseCase>/` reunindo command + handler + validator), em vez de pastas por tipo (`Commands/`, `Validators/`) — §1.2/§1.3. |
 | 1.0.2 | 2026-06-26 | Dispatcher `Send<TCommand, TResult>` reflection-free (resolve o handler por DI), em vez de `Send<TResult>(ICommand<TResult>)` — coerência com o cuidado "sem reflection" (§5.10/T05). |
 | 1.0.1 | 2026-06-26 | Convenção de nomes de branch (feature/release/hotfix) na §9.2. |

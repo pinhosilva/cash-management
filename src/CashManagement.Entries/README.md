@@ -157,7 +157,7 @@ public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand
         var id = _ids.New();                                          // id do stream / partition key
         var entry = Entry.PostCredit(id, Money.Of(cmd.Amount, "BRL"), cmd.OccurredAt);
         _eventStore.Append(entry);            // encena eventos + outbox; NÃO commita (§5.9)
-        return Task.FromResult(Result.Ok(id));// o commit é do IUnitOfWork (behavior do dispatcher)
+        return Task.FromResult(Result.Ok(id));// o commit é do IUnitOfWork, na fronteira do caso de uso
     }
 }
 ```
@@ -180,8 +180,9 @@ public async Task<IActionResult> Post(PostEntryDto dto)
 
 > `IEventStore.Append` **encena** os eventos não-commitados do agregado **e** a
 > linha de `outbox` (envelope §4.3); o **commit** é do `IUnitOfWork`, acionado uma
-> vez pelo behavior transacional do dispatcher (§5.10) — a concorrência otimista
-> (*expected version*) é verificada no commit. O relay publica no Kafka — ver
+> vez na **fronteira do caso de uso** (request na API, ou um orquestrador num
+> "pacotão" de comandos) — fora do dispatcher, que só despacha (SRP). A
+> concorrência otimista (*expected version*) é verificada no commit. O relay publica no Kafka — ver
 > Transactional Outbox na
 > [§5.9](../../../docs/ARCHITECTURE.md#59-transactional-outbox-publicação-confiável).
 >

@@ -125,7 +125,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - `IIdGenerator` (interface) + impl simples (`Guid.NewGuid()`) na Infra/Api.
 - `PostCreditCommand(decimal Amount, DateTime OccurredAt) : ICommand<Guid>`.
 - **Validator** do comando (valor positivo, data válida) → devolve `Result` de falha (`ErrorType.Validation`) antes de tocar o domínio.
-- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `_eventStore.Append(entry)` (sem commit — o commit é do `IUnitOfWork`, no behavior do dispatcher), retorna `Result.Ok(id)`. (ver sketch no README do Entries)
+- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `_eventStore.Append(entry)` (sem commit — o commit é do `IUnitOfWork`, na fronteira do caso de uso), retorna `Result.Ok(id)`. (ver sketch no README do Entries)
 - Portas consumidas: `IEventStore` (em `Domain/Persistence/`).
 
 **Critério de aceite:** testes verdes; o handler não conhece SQL/Kafka (só interfaces).
@@ -144,7 +144,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 **Implementar (em `Entries.Infrastructure/Persistence`):**
 - EF Core `DbContext` com tabelas `Events` (stream append-only) e `Outbox`.
 - `EventStore : IEventStore` **encena** (sem commit) os eventos não-commitados + a linha de outbox (envelope da §4.3), de forma **genérica** (qualquer agregado), num só lugar.
-- `UnitOfWork : IUnitOfWork`: `CommitAsync` faz o **commit atômico** (um `SaveChanges`); a *expected version* é garantida pelo índice único `(AggregateId, Version)`. Acionado 1× pelo behavior transacional do dispatcher (§5.10), **fora** do event store.
+- `UnitOfWork : IUnitOfWork`: `CommitAsync` faz o **commit atômico** (um `SaveChanges`); a *expected version* é garantida pelo índice único `(AggregateId, Version)`. Acionado 1× na **fronteira do caso de uso** (request na API / orquestrador num pacotão), **fora** do event store e do dispatcher.
 
 **Critério de aceite:** testes de integração verdes; nenhuma escrita parcial possível.
 
