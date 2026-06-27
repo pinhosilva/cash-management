@@ -12,6 +12,7 @@ public sealed class EntriesDbContext : DbContext
 {
     public DbSet<StoredEvent> Events => Set<StoredEvent>();
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
+    public DbSet<IdempotencyRecord> IdempotencyKeys => Set<IdempotencyRecord>();
 
     public EntriesDbContext(DbContextOptions<EntriesDbContext> options) : base(options)
     {
