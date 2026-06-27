@@ -19,6 +19,7 @@ public sealed class EntryRepository : IEntryRepository
 {
     private const int SqlUniqueViolation = 2627;
     private const int SqlUniqueIndexViolation = 2601;
+    private const int EventSchemaVersion = 1;
 
     private readonly EntriesDbContext _db;
     private readonly EventSerializer _serializer;
@@ -48,33 +49,33 @@ public sealed class EntryRepository : IEntryRepository
             {
                 version++;
                 var eventId = Guid.NewGuid();
-                var serialized = _serializer.Serialize(@event);
+                var type = @event.GetType().Name;
 
                 _db.Events.Add(new StoredEvent
                 {
                     EventId = eventId,
                     AggregateId = entry.Id,
                     Version = version,
-                    Type = serialized.Type,
-                    Data = JsonSerializer.Serialize(serialized.Data, EventSerializer.Options),
-                    OccurredAt = serialized.OccurredAt,
+                    Type = type,
+                    Data = _serializer.Serialize(@event),
+                    OccurredAt = @event.OccurredAt,
                 });
 
                 var envelope = new OutboxEnvelope(
-                    new EventInfo(eventId, serialized.Type, serialized.SchemaVersion),
+                    new EventInfo(eventId, type, EventSchemaVersion),
                     new AggregateInfo(entry.Id, version),
                     CorrelationId: null, // preenchido na borda (T08)
                     InitiatedBy: null,   // preenchido na borda (T08)
-                    serialized.OccurredAt,
-                    serialized.Data);
+                    @event.OccurredAt,
+                    @event);
 
                 _db.Outbox.Add(new OutboxMessage
                 {
                     Id = eventId,
                     AggregateId = entry.Id,
-                    Type = serialized.Type,
+                    Type = type,
                     Payload = JsonSerializer.Serialize(envelope, EventSerializer.Options),
-                    OccurredAt = serialized.OccurredAt,
+                    OccurredAt = @event.OccurredAt,
                     CreatedAt = createdAt,
                 });
             }
@@ -103,7 +104,7 @@ public sealed class EntryRepository : IEntryRepository
             return null;
         }
 
-        var history = stored.Select(e => _serializer.Deserialize(e.AggregateId, e.Type, e.Data, e.OccurredAt));
+        var history = stored.Select(e => _serializer.Deserialize(e.Type, e.Data));
         return Entry.FromHistory(history);
     }
 

@@ -5,9 +5,9 @@ namespace CashManagement.Entries.UnitTests.SeedWork;
 // Test doubles para exercitar a base de Event Sourcing (AggregateRoot/DomainEvent)
 // sem depender de um agregado real do domínio (Entry vem na T04).
 
-public sealed record FakeRegisteredEvent(Guid AggregateId, string Data) : DomainEvent(AggregateId);
+public sealed record FakeRegisteredEvent(Guid AggregateId, string Data) : DomainEvent(AggregateId, default);
 
-public sealed record FakeUnregisteredEvent(Guid AggregateId) : DomainEvent(AggregateId);
+public sealed record FakeUnregisteredEvent(Guid AggregateId) : DomainEvent(AggregateId, default);
 
 public sealed class FakeAggregate : AggregateRoot
 {

@@ -12,12 +12,9 @@ namespace CashManagement.Entries.Domain.Aggregates;
 /// </summary>
 public sealed class Entry : AggregateRoot
 {
-    private Entry()
-    {
-    }
+    private Entry() {  }
 
     public EntryType Type { get; private set; } = null!;
-
     public Money Amount { get; private set; } = null!;
 
     /// <summary>Registra um crédito, emitindo o <see cref="CreditPostedEvent"/>.</summary>

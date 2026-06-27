@@ -1,14 +1,18 @@
 using System.Text.Json;
-using CashManagement.Entries.Domain.Events;
 using CashManagement.Entries.Domain.SeedWork;
-using CashManagement.Entries.Domain.ValueObjects;
 
 namespace CashManagement.Entries.Infrastructure.Serialization;
 
 /// <summary>
-/// Converte eventos de domínio ↔ JSON de wire. O schema de wire é desacoplado
-/// dos tipos de domínio (DTOs próprios) — base para versionamento/upcasting (§FAQ).
+/// Serializa eventos de domínio ↔ JSON. Os tipos de evento são descobertos por
+/// reflection no assembly de Domain <b>uma vez</b> (startup); o runtime depois é
+/// só lookup em dicionário + System.Text.Json. Evento novo não exige mudança aqui.
 /// </summary>
+/// <remarks>
+/// Reflection na descoberta de tipo é uso normal de serialização (fora do hot
+/// path) — o guardrail "sem reflection" da seed work é escopado ao caminho quente
+/// (igualdade de VO, roteamento de evento), não a isto.
+/// </remarks>
 public sealed class EventSerializer
 {
     // Instância única reutilizada (recomendação do System.Text.Json — cacheia metadados).
@@ -17,37 +21,21 @@ public sealed class EventSerializer
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public SerializedEvent Serialize(IDomainEvent @event) => @event switch
-    {
-        CreditPostedEvent e => new SerializedEvent(
-            nameof(CreditPostedEvent),
-            new CreditPostedData(new MoneyData(e.Amount.Amount, e.Amount.Currency)),
-            e.OccurredAt),
-        _ => throw new NotSupportedException($"Unknown event type '{@event.GetType().Name}'.")
-    };
+    private static readonly IReadOnlyDictionary<string, Type> EventTypes =
+        typeof(IDomainEvent).Assembly.GetTypes()
+            .Where(t => t is { IsAbstract: false, IsInterface: false } && typeof(IDomainEvent).IsAssignableFrom(t))
+            .ToDictionary(t => t.Name);
 
-    public IDomainEvent Deserialize(Guid aggregateId, string type, string data, DateTime occurredAt) => type switch
-    {
-        nameof(CreditPostedEvent) => DeserializeCreditPosted(aggregateId, data, occurredAt),
-        _ => throw new NotSupportedException($"Unknown event type '{type}'.")
-    };
+    public string Serialize(IDomainEvent @event) =>
+        JsonSerializer.Serialize(@event, @event.GetType(), Options);
 
-    private static CreditPostedEvent DeserializeCreditPosted(Guid aggregateId, string data, DateTime occurredAt)
+    public IDomainEvent Deserialize(string type, string json)
     {
-        var payload = JsonSerializer.Deserialize<CreditPostedData>(data, Options)
-            ?? throw new InvalidOperationException("Invalid CreditPostedEvent payload.");
+        if (!EventTypes.TryGetValue(type, out var clrType))
+        {
+            throw new NotSupportedException($"Unknown event type '{type}'.");
+        }
 
-        return new CreditPostedEvent(
-            aggregateId,
-            Money.Of(payload.Amount.Amount, payload.Amount.Currency),
-            occurredAt);
+        return (IDomainEvent)JsonSerializer.Deserialize(json, clrType, Options)!;
     }
 }
-
-/// <summary>Evento serializado: tipo, payload (data §4.3) e instante; schema v1.</summary>
-public sealed record SerializedEvent(string Type, object Data, DateTime OccurredAt, int SchemaVersion = 1);
-
-// DTOs do schema de wire (não são os tipos de domínio).
-public sealed record CreditPostedData(MoneyData Amount);
-
-public sealed record MoneyData(decimal Amount, string Currency);
