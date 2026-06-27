@@ -62,7 +62,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - `On<T>` não registrado para um evento → comportamento definido (lançar ou ignorar — **decida e documente**; recomendo lançar em DEBUG).
 
 **Implementar:**
-- `DomainEvent` (abstrata): carrega `AggregateId` (Guid).
+- `DomainEvent` (abstrata): carrega `AggregateId` (Guid) e `OccurredAt` (UTC).
 - `AggregateRoot` (abstrata): `Guid Id` (setter privado), `int Version`, `IReadOnlyCollection<IDomainEvent> UncommittedEvents`, `Emit(evento)` **`protected`**, `LoadFromHistory(...)`, `ClearUncommittedEvents()`, e o registro `On<TEvent>(Action<TEvent>)` chamado em `RegisterEvents()` (abstrato).
 - `Result` / `Result<T>` + `Error` (`code`, `message`, `ErrorType`): resultado de operação **sem exceção** — base do contrato de resposta (§4.4) e do Result pattern (§5.10).
 

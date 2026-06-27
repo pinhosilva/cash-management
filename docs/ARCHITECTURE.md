@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.4 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.5 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -102,7 +102,7 @@ caso de uso ganha uma pasta em `Features/` reunindo command + handler + validato
 (+ DTOs) — *o que muda junto fica junto* (alta coesão). Building blocks de CQRS
 ficam em `Abstractions/` e portas em `Interfaces/`. O **Domain**, por sua vez,
 segue organizado por tipo de DDD (`Aggregates/`, `Events/`, `ValueObjects/`,
-`Repositories/`, `SeedWork/`) — vertical slice é conceito da camada de aplicação,
+`Persistence/`, `SeedWork/`) — vertical slice é conceito da camada de aplicação,
 não do modelo de domínio.
 
 Detalhes de cada estrutura estão documentados no `README.md` de cada serviço
@@ -719,7 +719,7 @@ auditável por quem for mantê-la.
 | Abstração (própria)              | Papel no Entries                                                                                        |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `AggregateRoot`                     | Base do`Entry`: roteamento de eventos, `Apply`/replay, `Emit`, lista de eventos não-commitados         |
-| `DomainEvent`                       | Base dos eventos (`CreditPostedEvent`, etc.), carregando o `aggregateId`                                |
+| `DomainEvent`                       | Base dos eventos (`CreditPostedEvent`, etc.), carregando `aggregateId` e `occurredAt` (UTC)             |
 | `ICommand` / `ICommandHandler<T>`   | Contrato e despacho dos commands                                                                        |
 | `IEventStore` (+ `IUnitOfWork`)     | Append (encena eventos + outbox) e replay do agregado; commit atômico no UoW — impl. no Infrastructure, sobre o SQL Server |
 | `ValueObject`                       | Value Objects (ex.:`Money`, `EntryType`) — imutáveis, igualdade por valor                            |
@@ -1640,6 +1640,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.5 | 2026-06-26 | Refinos de Event Sourcing: `OccurredAt` na base `DomainEvent`; serializer de eventos por **auto-descoberta** (reflection no startup); reidratação genérica em `AggregateRoot.FromHistory<T>`; guardrail "sem reflection" **escopado ao hot path** (reflection ok em DI/serialização); `Domain/Repositories/` → `Domain/Persistence/`. |
 | 1.0.4 | 2026-06-26 | Persistência separada em `IEventStore` (append + replay, outbox genérica num só lugar) e `IUnitOfWork` (commit atômico isolado, acionado na fronteira do caso de uso — request/orquestrador —, **não** no dispatcher, que mantém responsabilidade única de despachar), no lugar do `IEntryRepository.SaveAsync` "gordo" — §5.8/§5.9/§5.10. |
 | 1.0.3 | 2026-06-26 | Organização da camada de Application por **vertical slice** (`Features/<UseCase>/` reunindo command + handler + validator), em vez de pastas por tipo (`Commands/`, `Validators/`) — §1.2/§1.3. |
 | 1.0.2 | 2026-06-26 | Dispatcher `Send<TCommand, TResult>` reflection-free (resolve o handler por DI), em vez de `Send<TResult>(ICommand<TResult>)` — coerência com o cuidado "sem reflection" (§5.10/T05). |
