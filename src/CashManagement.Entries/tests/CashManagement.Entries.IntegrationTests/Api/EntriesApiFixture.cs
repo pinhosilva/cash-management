@@ -1,5 +1,8 @@
 using CashManagement.Entries.Api.Auth;
+using CashManagement.Entries.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.MsSql;
 using Xunit;
@@ -10,6 +13,8 @@ namespace CashManagement.Entries.IntegrationTests.Api;
 /// Sobe a API real (<see cref="WebApplicationFactory{TEntryPoint}"/>) contra um
 /// SQL Server em container, com a chave de assinatura JWT de dev. Compartilhada
 /// pela classe de teste; expõe um <c>HttpClient</c> e o emissor de token de dev.
+/// A chave/ambiente são configurados de forma <b>escopada</b> à factory (via
+/// <c>UseSetting</c>/<c>UseEnvironment</c>), sem variável de ambiente global.
 /// </summary>
 public sealed class EntriesApiFixture : IAsyncLifetime
 {
@@ -27,17 +32,32 @@ public sealed class EntriesApiFixture : IAsyncLifetime
         return scope.ServiceProvider.GetRequiredService<DevTokenService>().IssueWriteToken();
     }
 
+    /// <summary>Token autenticado, porém <b>sem</b> o scope <c>entries:write</c> — exercita o 403.</summary>
+    public string IssueTokenWithoutWriteScope()
+    {
+        using var scope = _factory.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<DevTokenService>().IssueToken("dev-merchant", "balances:read");
+    }
+
+    /// <summary>Conta os eventos persistidos no event store para um agregado — confere a invariante de "um único evento".</summary>
+    public async Task<int> CountStoredEventsAsync(Guid aggregateId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EntriesDbContext>();
+        return await db.Events.CountAsync(e => e.AggregateId == aggregateId);
+    }
+
     public async Task InitializeAsync()
     {
         await _sql.StartAsync();
 
-        Environment.SetEnvironmentVariable("ENTRIES_JWT_SIGNING_KEY", SigningKey);
-
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(host =>
             {
+                host.UseEnvironment("Development");
                 host.UseSetting("ConnectionStrings:Entries", _sql.GetConnectionString());
                 host.UseSetting("Kafka:BootstrapServers", "localhost:59092"); // relay falha em silêncio; não usado nestes testes
+                host.UseSetting("Jwt:SigningKey", SigningKey);
             });
 
         Client = _factory.CreateClient();

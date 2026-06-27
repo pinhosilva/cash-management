@@ -64,6 +64,25 @@ public class PostEntriesTests : IClassFixture<EntriesApiFixture>
     }
 
     [Fact]
+    public async Task Posting_with_a_token_missing_the_write_scope_returns_403_with_error_envelope()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/entries")
+        {
+            Content = JsonContent.Create(new { amount = 100m, occurredAt = DateTime.UtcNow }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _fixture.IssueTokenWithoutWriteScope());
+
+        var response = await _fixture.Client.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+        var root = await ReadJsonAsync(response);
+        root.GetProperty("status").GetString().ShouldBe("error");
+        root.GetProperty("error").GetProperty("code").GetString().ShouldBe("INSUFFICIENT_SCOPE");
+        root.GetProperty("correlationId").GetString().ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public async Task Posting_a_non_positive_amount_returns_400_with_validation_envelope()
     {
         var request = AuthorizedPost(new { amount = 0m, occurredAt = DateTime.UtcNow });
@@ -94,7 +113,20 @@ public class PostEntriesTests : IClassFixture<EntriesApiFixture>
     }
 
     [Fact]
-    public async Task Repeating_the_same_idempotency_key_returns_the_original_id()
+    public async Task Generates_a_correlation_id_when_absent_and_echoes_it_in_the_response()
+    {
+        var request = AuthorizedPost(new { amount = 10m, occurredAt = DateTime.UtcNow });
+
+        var response = await _fixture.Client.SendAsync(request);
+
+        var header = response.Headers.GetValues("X-Correlation-Id").Single();
+        header.ShouldNotBeNullOrWhiteSpace();
+        var root = await ReadJsonAsync(response);
+        root.GetProperty("correlationId").GetString().ShouldBe(header);
+    }
+
+    [Fact]
+    public async Task Repeating_the_same_idempotency_key_returns_the_original_id_and_creates_a_single_event()
     {
         var key = Guid.NewGuid().ToString();
 
@@ -106,6 +138,9 @@ public class PostEntriesTests : IClassFixture<EntriesApiFixture>
 
         second.StatusCode.ShouldBe(HttpStatusCode.Created);
         secondId.ShouldBe(firstId);
+
+        // O replay não gera um segundo evento no event store: dedup idempotente de escrita (§4.3).
+        (await _fixture.CountStoredEventsAsync(Guid.Parse(firstId!))).ShouldBe(1);
     }
 
     private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)

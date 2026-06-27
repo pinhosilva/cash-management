@@ -17,17 +17,23 @@ public sealed class DevTokenService
 
     public DevTokenService(IOptions<JwtOptions> options) => _options = options.Value;
 
-    public string IssueWriteToken(string subject = "dev-merchant")
+    /// <summary>Emite um token com o scope <c>entries:write</c> (caminho feliz do <c>POST /entries</c>).</summary>
+    public string IssueWriteToken(string subject = "dev-merchant") =>
+        IssueToken(subject, JwtOptions.WriteScope);
+
+    /// <summary>
+    /// Emite um JWT válido (assinatura/issuer/audience/exp) com os <paramref name="scopes"/>
+    /// informados. Permite emitir um token autenticado <b>sem</b> o scope de escrita —
+    /// usado para exercer o caminho de <c>403</c> (§8.1).
+    /// </summary>
+    public string IssueToken(string subject, params string[] scopes)
     {
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SigningKey)),
             SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
-        {
-            new Claim(JwtRegisteredClaimNames.Sub, subject),
-            new Claim("scope", JwtOptions.WriteScope),
-        };
+        var claims = new List<Claim> { new(JwtRegisteredClaimNames.Sub, subject) };
+        claims.AddRange(scopes.Select(scope => new Claim("scope", scope)));
 
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,
