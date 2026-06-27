@@ -72,7 +72,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - **Ordenação por `Version`** (incrementada a cada evento), **nunca** por relógio/`Ticks`/`Task.Delay` (sem qualquer *delay* no apply).
 - Timestamps em **UTC** (`DateTime.UtcNow` ou um `IClock` injetável), **nunca** `DateTime.Now`.
 - Roteamento de eventos por **composição** (dicionário privado encapsulado), **não** herdar de `Dictionary`.
-- **Sem reflection** no caminho de execução e **sem** sync-over-async (`.GetAwaiter().GetResult()`) — inclusive nas fixtures.
+- **Sem reflection no caminho de execução (hot path)** — ex.: igualdade de Value Object a cada comparação (use `record`) e roteamento de evento (use `On<T>()`). Reflection **é ok** onde é normal e barata, fora do caminho quente: container de DI, serialização, descoberta de tipos no startup. E **sem** sync-over-async (`.GetAwaiter().GetResult()`) — inclusive nas fixtures.
 
 **Critério de aceite:** testes acima verdes. `Domain` sem nenhuma dependência de pacote externo.
 
