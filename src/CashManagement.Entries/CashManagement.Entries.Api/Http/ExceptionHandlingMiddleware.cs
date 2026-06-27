@@ -1,7 +1,6 @@
 using System.Text.Json;
 using CashManagement.Entries.Api.Contracts;
 using CashManagement.Entries.Api.Correlation;
-using CashManagement.Entries.Api.Logging;
 using CashManagement.Entries.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 

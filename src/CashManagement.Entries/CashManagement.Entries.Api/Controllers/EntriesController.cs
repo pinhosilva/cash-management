@@ -2,7 +2,6 @@ using CashManagement.Entries.Api.Auth;
 using CashManagement.Entries.Api.Contracts;
 using CashManagement.Entries.Api.Correlation;
 using CashManagement.Entries.Api.Http;
-using CashManagement.Entries.Api.Logging;
 using CashManagement.Entries.Application.Abstractions;
 using CashManagement.Entries.Application.Features.PostCredit;
 using CashManagement.Entries.Domain.Persistence;

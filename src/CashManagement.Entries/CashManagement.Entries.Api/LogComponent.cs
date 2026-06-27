@@ -1,4 +1,4 @@
-namespace CashManagement.Entries.Api.Logging;
+namespace CashManagement.Entries.Api;
 
 /// <summary>
 /// Componente de origem do log como <b>campo</b> estruturado (enum fechado, §8.2)
