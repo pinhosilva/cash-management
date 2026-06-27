@@ -11,6 +11,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
         builder.ToTable("Outbox");
+
         builder.HasKey(o => o.Id);
         builder.HasIndex(o => o.ProcessedAt);
         builder.Property(o => o.Type).HasMaxLength(200);

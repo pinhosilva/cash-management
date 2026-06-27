@@ -15,16 +15,16 @@ namespace CashManagement.Entries.Application.Features.PostCredit;
 /// </summary>
 public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand, Guid>
 {
-    private readonly IEventStore _eventStore;
+    private readonly IRepository _repository;
     private readonly IIdGenerator _ids;
     private readonly PostCreditCommandValidator _validator;
 
     public PostCreditCommandHandler(
-        IEventStore eventStore,
+        IRepository repository,
         IIdGenerator ids,
         PostCreditCommandValidator validator)
     {
-        _eventStore = eventStore;
+        _repository = repository;
         _ids = ids;
         _validator = validator;
     }
@@ -39,7 +39,7 @@ public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand
 
         var id = _ids.New();
         var entry = Entry.PostCredit(id, Money.Of(command.Amount, "BRL"), command.OccurredAt);
-        _eventStore.Append(entry);
+        _repository.Add(entry);
 
         return Task.FromResult(Result.Ok(id));
     }

@@ -9,20 +9,20 @@ using Xunit;
 
 namespace CashManagement.Entries.IntegrationTests.Persistence;
 
-public class EventStoreTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifetime
+public class RepositoryTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifetime
 {
     private readonly MsSqlContainerFixture _fixture;
     private EntriesDbContext _db = default!;
-    private EventStore _eventStore = default!;
+    private Repository _repository = default!;
     private UnitOfWork _unitOfWork = default!;
 
-    public EventStoreTests(MsSqlContainerFixture fixture) => _fixture = fixture;
+    public RepositoryTests(MsSqlContainerFixture fixture) => _fixture = fixture;
 
     public async Task InitializeAsync()
     {
         _db = CreateDbContext();
         await _db.Database.EnsureCreatedAsync();
-        _eventStore = new EventStore(_db, new EventSerializer());
+        _repository = new Repository(_db, new EventSerializer());
         _unitOfWork = new UnitOfWork(_db);
     }
 
@@ -41,11 +41,11 @@ public class EventStoreTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifet
     }
 
     [Fact]
-    public async Task Append_and_commit_persists_event_and_outbox_atomically()
+    public async Task Add_and_commit_persists_event_and_outbox_atomically()
     {
         var id = Guid.NewGuid();
 
-        _eventStore.Append(Entry.PostCredit(id, Money.Of(150m, "BRL"), DateTime.UtcNow));
+        _repository.Add(Entry.PostCredit(id, Money.Of(150m, "BRL"), DateTime.UtcNow));
         await _unitOfWork.CommitAsync();
 
         await using var verify = CreateDbContext();
@@ -54,15 +54,15 @@ public class EventStoreTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifet
     }
 
     [Fact]
-    public async Task LoadAsync_rebuilds_entry_by_replay()
+    public async Task GetAsync_rebuilds_entry_by_replay()
     {
         var id = Guid.NewGuid();
-        _eventStore.Append(Entry.PostCredit(id, Money.Of(200m, "BRL"), DateTime.UtcNow));
+        _repository.Add(Entry.PostCredit(id, Money.Of(200m, "BRL"), DateTime.UtcNow));
         await _unitOfWork.CommitAsync();
 
         await using var read = CreateDbContext();
-        var eventStore = new EventStore(read, new EventSerializer());
-        var entry = await eventStore.LoadAsync<Entry>(id);
+        var repository = new Repository(read, new EventSerializer());
+        var entry = await repository.GetAsync<Entry>(id);
 
         entry.ShouldNotBeNull();
         entry!.Id.ShouldBe(id);
@@ -75,13 +75,13 @@ public class EventStoreTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifet
     public async Task Committing_a_conflicting_version_throws_concurrency_conflict()
     {
         var id = Guid.NewGuid();
-        _eventStore.Append(Entry.PostCredit(id, Money.Of(10m, "BRL"), DateTime.UtcNow));
+        _repository.Add(Entry.PostCredit(id, Money.Of(10m, "BRL"), DateTime.UtcNow));
         await _unitOfWork.CommitAsync();
 
         await using var second = CreateDbContext();
-        var eventStore = new EventStore(second, new EventSerializer());
+        var repository = new Repository(second, new EventSerializer());
         var unitOfWork = new UnitOfWork(second);
-        eventStore.Append(Entry.PostCredit(id, Money.Of(20m, "BRL"), DateTime.UtcNow)); // mesmo id => versão 1 de novo
+        repository.Add(Entry.PostCredit(id, Money.Of(20m, "BRL"), DateTime.UtcNow)); // mesmo id => versão 1 de novo
 
         await Should.ThrowAsync<ConcurrencyConflictException>(() => unitOfWork.CommitAsync());
     }
@@ -90,7 +90,7 @@ public class EventStoreTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifet
     public async Task Outbox_envelope_follows_the_contract()
     {
         var id = Guid.NewGuid();
-        _eventStore.Append(Entry.PostCredit(id, Money.Of(99m, "BRL"), DateTime.UtcNow));
+        _repository.Add(Entry.PostCredit(id, Money.Of(99m, "BRL"), DateTime.UtcNow));
         await _unitOfWork.CommitAsync();
 
         await using var verify = CreateDbContext();

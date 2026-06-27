@@ -9,26 +9,26 @@ using Microsoft.EntityFrameworkCore;
 namespace CashManagement.Entries.Infrastructure.Persistence;
 
 /// <summary>
-/// Event store sobre EF Core (SQL Server). <see cref="Append"/> encena, para
-/// cada evento não-commitado, uma linha no event store <b>e</b> a linha de
+/// Repositório de agregados sobre EF Core (SQL Server). <see cref="Add"/> encena,
+/// para cada evento não-commitado, uma linha no event store <b>e</b> a linha de
 /// outbox (envelope §4.3) — de forma genérica, num único lugar. Não commita
 /// (isso é do <see cref="IUnitOfWork"/>). A unicidade de (AggregateId, Version)
 /// garante append-only e concorrência otimista.
 /// </summary>
-public sealed class EventStore : IEventStore
+public sealed class Repository : IRepository
 {
     private const int EventSchemaVersion = 1;
 
     private readonly EntriesDbContext _db;
     private readonly EventSerializer _serializer;
 
-    public EventStore(EntriesDbContext db, EventSerializer serializer)
+    public Repository(EntriesDbContext db, EventSerializer serializer)
     {
         _db = db;
         _serializer = serializer;
     }
 
-    public void Append(AggregateRoot aggregate)
+    public void Add(AggregateRoot aggregate)
     {
         var uncommitted = aggregate.UncommittedEvents.ToList();
         if (uncommitted.Count == 0)
@@ -77,7 +77,7 @@ public sealed class EventStore : IEventStore
         aggregate.ClearUncommittedEvents();
     }
 
-    public async Task<TAggregate?> LoadAsync<TAggregate>(Guid id) where TAggregate : AggregateRoot
+    public async Task<TAggregate?> GetAsync<TAggregate>(Guid id) where TAggregate : AggregateRoot
     {
         var stored = await _db.Events
             .AsNoTracking()

@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.5 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.6 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -183,7 +183,7 @@ passado**:
 | ---------------------- | -------------------------------------- | -------------------- |
 | Aggregate Root         | `[Conceito]` (substantivo, sem sufixo) | `Entry`              |
 | Value Object           | `[Conceito]` (substantivo, sem sufixo) | `Money`, `EntryType` |
-| Persistência (portas)  | `IEventStore`, `IUnitOfWork`            | event store + UoW    |
+| Persistência (portas)  | `IRepository`, `IUnitOfWork`            | repositório + UoW    |
 
 #### Tópicos Kafka
 
@@ -721,7 +721,7 @@ auditável por quem for mantê-la.
 | `AggregateRoot`                     | Base do`Entry`: roteamento de eventos, `Apply`/replay, `Emit`, lista de eventos não-commitados         |
 | `DomainEvent`                       | Base dos eventos (`CreditPostedEvent`, etc.), carregando `aggregateId` e `occurredAt` (UTC)             |
 | `ICommand` / `ICommandHandler<T>`   | Contrato e despacho dos commands                                                                        |
-| `IEventStore` (+ `IUnitOfWork`)     | Append (encena eventos + outbox) e replay do agregado; commit atômico no UoW — impl. no Infrastructure, sobre o SQL Server |
+| `IRepository` (+ `IUnitOfWork`)     | `Add` (encena eventos + outbox) e `GetAsync` (replay) do agregado; commit atômico no UoW — impl. no Infrastructure, sobre o SQL Server |
 | `ValueObject`                       | Value Objects (ex.:`Money`, `EntryType`) — imutáveis, igualdade por valor                            |
 | `Result<T>` / `Error`               | Resultado de operação (sucesso/falha) sem exceção; `Error` carrega `code` + `message` + `ErrorType` (→ HTTP) |
 | Fixtures de teste                   | Given/When/Then sobre o agregado e os handlers (ver seção 6)                                          |
@@ -765,7 +765,7 @@ O **Transactional Outbox** elimina esse risco:
 > **Outbox × Unit of Work — não são a mesma coisa.** O **Unit of Work** é o
 > mecanismo de transação atômica ("tudo ou nada"); o **Outbox** é o *uso* dessa
 > atomicidade para publicar de forma confiável. O UoW é o que torna o passo 1
-> atômico — sem ele, não há Outbox correto. Na prática, o `IEventStore.Append`
+> atômico — sem ele, não há Outbox correto. Na prática, o `IRepository.Add`
 > **encena** os eventos do agregado **e** a linha de `outbox`; o
 > `IUnitOfWork.CommitAsync` grava tudo numa transação (commit acionado uma vez na
 > fronteira do caso de uso — a request, ou um orquestrador num "pacotão" — fora do
@@ -796,7 +796,7 @@ código no [README do Entries](../src/CashManagement.Entries/README.md).
 |---|---|---|
 | **Command** (GoF) | `PostCreditCommand` + handler | Encapsula a intenção; pode ser validada/rejeitada antes de virar fato |
 | **Mediator** (GoF) | `CommandDispatcher` próprio (enxuto) | Desacopla emissor do handler, **captura o comando e devolve resultado** (`Send<TCommand, TResult>`); ponto único para *cross-cutting* (log, validação, idempotência) |
-| **Repository / Event Store** (DDD) | `IEventStore` | Abstrai o event store (append + replay); o domínio não sabe que é SQL |
+| **Repository** (DDD) | `IRepository` | Abstrai a persistência do agregado (`Add`/`GetAsync`); event store + outbox ficam por baixo, o caso de uso não sabe que é SQL/ES |
 | **Unit of Work** (PoEAA) | `IUnitOfWork` | Commit atômico (eventos + outbox); acionado 1× na fronteira do caso de uso (request/orquestrador), fora do dispatcher (SRP) |
 | **Factory** (GoF) | `Entry.PostCredit(...)` e a reconstrução por replay | Criação consistente já emitindo o evento |
 | **Domain Event** (DDD) | os `*Event` | Base do Event Sourcing e da integração via Kafka |
@@ -816,7 +816,7 @@ evitando a licença comercial das versões novas do MediatR).
   persiste, a projeção projeta — quatro responsabilidades, quatro lugares.
 - **OCP:** um novo tipo de evento entra com um novo `On<>` e seu handler, sem
   tocar na mecânica de replay.
-- **DIP:** o Domain define `IEventStore`/`IUnitOfWork`/`IEventPublisher`; a Infrastructure
+- **DIP:** o Domain define `IRepository`/`IUnitOfWork`/`IEventPublisher`; a Infrastructure
   implementa — exatamente a regra de dependência da Clean Architecture (§1.2).
 
 **Tratamento de falhas — `Result`, sem exceção:** falhas **esperadas** (regra de
@@ -1640,6 +1640,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.6 | 2026-06-26 | Porta de persistência renomeada para `IRepository` (`Add`/`GetAsync`), **domain-neutral** — o caso de uso só "persiste/carrega o agregado"; event store + outbox + publish ficam por baixo dos panos (genéricos). O handler não conhece event store nem Kafka. |
 | 1.0.5 | 2026-06-26 | Refinos de Event Sourcing: `OccurredAt` na base `DomainEvent`; serializer de eventos por **auto-descoberta** (reflection no startup); reidratação genérica em `AggregateRoot.FromHistory<T>`; guardrail "sem reflection" **escopado ao hot path** (reflection ok em DI/serialização); `Domain/Repositories/` → `Domain/Persistence/`. |
 | 1.0.4 | 2026-06-26 | Persistência separada em `IEventStore` (append + replay, outbox genérica num só lugar) e `IUnitOfWork` (commit atômico isolado, acionado na fronteira do caso de uso — request/orquestrador —, **não** no dispatcher, que mantém responsabilidade única de despachar), no lugar do `IEntryRepository.SaveAsync` "gordo" — §5.8/§5.9/§5.10. |
 | 1.0.3 | 2026-06-26 | Organização da camada de Application por **vertical slice** (`Features/<UseCase>/` reunindo command + handler + validator), em vez de pastas por tipo (`Commands/`, `Validators/`) — §1.2/§1.3. |

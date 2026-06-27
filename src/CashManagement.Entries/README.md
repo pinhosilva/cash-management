@@ -19,7 +19,7 @@ CashManagement.Entries.Domain/         # Núcleo do domínio — sem dependênci
 ├── Aggregates/                        # Aggregate Roots (ex: Entry)
 ├── ValueObjects/                      # Value Objects (ex: Money, EntryType)
 ├── Events/                            # Domain Events (ex: CreditPostedEvent)
-└── Persistence/                       # Portas de persistência (IEventStore, IUnitOfWork)
+└── Persistence/                       # Portas de persistência (IRepository, IUnitOfWork)
 
 CashManagement.Entries.Application/    # Casos de uso (organizados por vertical slice)
 ├── Abstractions/                      # Building blocks de CQRS (ICommand, ICommandHandler, ICommandDispatcher)
@@ -28,7 +28,7 @@ CashManagement.Entries.Application/    # Casos de uso (organizados por vertical 
     └── PostCredit/                    # Command + Handler + Validator (+ DTOs) do caso de uso, juntos
 
 CashManagement.Entries.Infrastructure/ # Implementações concretas
-├── Persistence/                       # EF Core: DbContext, EventStore, UnitOfWork + Models/ (POCOs) e Configurations/ (mapeamentos)
+├── Persistence/                       # EF Core: DbContext, Repository, UnitOfWork + Models/ (POCOs) e Configurations/ (mapeamentos)
 ├── Serialization/                     # (de)serialização de eventos ↔ JSON
 └── Messaging/                         # Producer Kafka + relay da outbox
 
@@ -146,17 +146,17 @@ public sealed record PostCreditCommand(decimal Amount, DateTime OccurredAt)
 
 public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand, Guid>
 {
-    private readonly IEventStore _eventStore;
+    private readonly IRepository _repository;
     private readonly IIdGenerator _ids;
 
-    public PostCreditCommandHandler(IEventStore eventStore, IIdGenerator ids)
-        => (_eventStore, _ids) = (eventStore, ids);
+    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids)
+        => (_repository, _ids) = (repository, ids);
 
     public Task<Result<Guid>> HandleAsync(PostCreditCommand cmd)
     {
         var id = _ids.New();                                          // id do stream / partition key
         var entry = Entry.PostCredit(id, Money.Of(cmd.Amount, "BRL"), cmd.OccurredAt);
-        _eventStore.Append(entry);            // encena eventos + outbox; NÃO commita (§5.9)
+        _repository.Add(entry);               // persiste o agregado; event store + outbox por baixo (§5.9)
         return Task.FromResult(Result.Ok(id));// o commit é do IUnitOfWork, na fronteira do caso de uso
     }
 }
@@ -178,7 +178,7 @@ public async Task<IActionResult> Post(PostEntryDto dto)
 > `ErrorType` + `{ status, error }`. Exceção não-tratada vira `500` no mesmo
 > envelope (middleware global).
 
-> `IEventStore.Append` **encena** os eventos não-commitados do agregado **e** a
+> `IRepository.Add` **encena** os eventos não-commitados do agregado **e** a
 > linha de `outbox` (envelope §4.3); o **commit** é do `IUnitOfWork`, acionado uma
 > vez na **fronteira do caso de uso** (request na API, ou um orquestrador num
 > "pacotão" de comandos) — fora do dispatcher, que só despacha (SRP). A
