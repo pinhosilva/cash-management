@@ -10,7 +10,7 @@ namespace CashManagement.Entries.Application.Features.PostCredit;
 /// <summary>
 /// Orquestra o registro de um crédito: valida → gera id → cria o agregado →
 /// <b>encena</b> os eventos no event store (sem commit — o commit é do
-/// Unit of Work, no behavior do dispatcher). A regra vive no agregado; aqui é
+/// Unit of Work, na fronteira do caso de uso). A regra vive no agregado; aqui é
 /// só orquestração. Não conhece SQL/Kafka/transação.
 /// </summary>
 public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand, Guid>
