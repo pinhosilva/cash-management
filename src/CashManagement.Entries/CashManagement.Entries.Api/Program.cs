@@ -29,9 +29,9 @@ configuration.GetSection(JwtOptions.SectionName).Bind(jwt);
 if (string.IsNullOrWhiteSpace(jwt.SigningKey))
 {
     jwt.SigningKey = Environment.GetEnvironmentVariable("ENTRIES_JWT_SIGNING_KEY")
-        ?? (builder.Environment.IsProduction()
-            ? throw new InvalidOperationException("JWT signing key is required in production (ENTRIES_JWT_SIGNING_KEY).")
-            : "dev-signing-key-change-me-please-32-bytes-minimum");
+        ?? (builder.Environment.IsDevelopment()
+            ? "dev-signing-key-change-me-please-32-bytes-minimum"
+            : throw new InvalidOperationException("JWT signing key is required outside Development (ENTRIES_JWT_SIGNING_KEY)."));
 }
 
 builder.Services.Configure<JwtOptions>(options =>

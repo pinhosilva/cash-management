@@ -68,7 +68,8 @@ public sealed class EntriesController : ControllerBase
             }
         }
 
-        var command = new PostCreditCommand(request.Amount, request.OccurredAt ?? DateTime.UtcNow);
+        var occurredAt = NormalizeToUtc(request.OccurredAt ?? DateTime.UtcNow);
+        var command = new PostCreditCommand(request.Amount, occurredAt);
         var result = await _dispatcher.Send<PostCreditCommand, Guid>(command);
 
         if (result.IsFailure)
@@ -90,4 +91,16 @@ public sealed class EntriesController : ControllerBase
         return Created($"/entries/{id}",
             ApiResponse<EntryCreated>.Success(new EntryCreated(id.ToString()), correlationId));
     }
+
+    /// <summary>
+    /// Garante que o <c>OccurredAt</c> entre no event store imutável sempre em UTC
+    /// (§4.3): eventos não são reparáveis depois. Valor já-UTC passa direto; Local é
+    /// convertido; Unspecified é assumido como UTC (a API documenta entrada em UTC).
+    /// </summary>
+    private static DateTime NormalizeToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 }
