@@ -32,7 +32,8 @@ public sealed class OutboxRelayService : BackgroundService
             }
             catch
             {
-                // ciclo seguinte tenta de novo; observabilidade (log) entra na T08.
+                // ciclo seguinte tenta de novo (at-least-once); o log do relay entra
+                // na fatia futura de observabilidade (§8.2), com ILogger + component.
             }
 
             await Task.Delay(PollInterval, stoppingToken);
