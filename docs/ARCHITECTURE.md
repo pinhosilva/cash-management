@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.6 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.7 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -816,8 +816,9 @@ evitando a licença comercial das versões novas do MediatR).
   persiste, a projeção projeta — quatro responsabilidades, quatro lugares.
 - **OCP:** um novo tipo de evento entra com um novo `On<>` e seu handler, sem
   tocar na mecânica de replay.
-- **DIP:** o Domain define `IRepository`/`IUnitOfWork`/`IEventPublisher`; a Infrastructure
-  implementa — exatamente a regra de dependência da Clean Architecture (§1.2).
+- **DIP:** o Domain define `IRepository`/`IUnitOfWork` e a Application a porta
+  `IEventPublisher` (usada pelo relay); a Infrastructure implementa — exatamente
+  a regra de dependência da Clean Architecture (§1.2).
 
 **Tratamento de falhas — `Result`, sem exceção:** falhas **esperadas** (regra de
 negócio, validação) retornam um `Result` com `Error` (`code`, `message`,
@@ -1640,6 +1641,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.7 | 2026-06-27 | T07 (relay): a porta `IEventPublisher` (publicação no Kafka pelo relay) vive na **Application** — ajuste do DIP em §5.10. |
 | 1.0.6 | 2026-06-26 | Porta de persistência renomeada para `IRepository` (`Add`/`GetAsync`), **domain-neutral** — o caso de uso só "persiste/carrega o agregado"; event store + outbox + publish ficam por baixo dos panos (genéricos). O handler não conhece event store nem Kafka. |
 | 1.0.5 | 2026-06-26 | Refinos de Event Sourcing: `OccurredAt` na base `DomainEvent`; serializer de eventos por **auto-descoberta** (reflection no startup); reidratação genérica em `AggregateRoot.FromHistory<T>`; guardrail "sem reflection" **escopado ao hot path** (reflection ok em DI/serialização); `Domain/Repositories/` → `Domain/Persistence/`. |
 | 1.0.4 | 2026-06-26 | Persistência separada em `IEventStore` (append + replay, outbox genérica num só lugar) e `IUnitOfWork` (commit atômico isolado, acionado na fronteira do caso de uso — request/orquestrador —, **não** no dispatcher, que mantém responsabilidade única de despachar), no lugar do `IEntryRepository.SaveAsync` "gordo" — §5.8/§5.9/§5.10. |
