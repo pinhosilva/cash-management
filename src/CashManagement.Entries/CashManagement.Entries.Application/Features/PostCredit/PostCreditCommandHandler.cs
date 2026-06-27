@@ -19,10 +19,7 @@ public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand
     private readonly IIdGenerator _ids;
     private readonly PostCreditCommandValidator _validator;
 
-    public PostCreditCommandHandler(
-        IRepository repository,
-        IIdGenerator ids,
-        PostCreditCommandValidator validator)
+    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids, PostCreditCommandValidator validator)
     {
         _repository = repository;
         _ids = ids;
