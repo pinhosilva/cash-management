@@ -20,12 +20,21 @@ namespace CashManagement.Entries.Api.Configuration;
 /// <summary>Wire-up de DI da API: Application, Infra, EF Core, auth e correlação.</summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registra o pipeline da Application (dispatcher + handler + validator).</summary>
+    /// <summary>
+    /// Registra o pipeline da Application (dispatcher + handler + validator). O handler
+    /// de <c>PostCredit</c> é <b>decorado</b> pelo behavior de idempotência (§5.10): a
+    /// dedup acontece em volta do <c>Send</c>, não no controller.
+    /// </summary>
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         services.AddScoped<ICommandDispatcher, CommandDispatcher>();
         services.AddScoped<PostCreditCommandValidator>();
-        services.AddScoped<ICommandHandler<PostCreditCommand, Guid>, PostCreditCommandHandler>();
+        services.AddScoped<PostCreditCommandHandler>();
+        services.AddScoped<ICommandHandler<PostCreditCommand, Guid>>(sp =>
+            new IdempotentCommandHandler<PostCreditCommand>(
+                sp.GetRequiredService<PostCreditCommandHandler>(),
+                sp.GetRequiredService<IIdempotencyStore>(),
+                sp.GetRequiredService<IIdempotencyContext>()));
         return services;
     }
 
@@ -47,11 +56,13 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>Registra o contexto de correlação escopado, exposto pela porta da Application.</summary>
+    /// <summary>Registra os contextos escopados da borda (correlação e idempotência), expostos pelas portas da Application.</summary>
     public static IServiceCollection AddCorrelation(this IServiceCollection services)
     {
         services.AddScoped<CorrelationContext>();
         services.AddScoped<ICorrelationContext>(sp => sp.GetRequiredService<CorrelationContext>());
+        services.AddScoped<IdempotencyContext>();
+        services.AddScoped<IIdempotencyContext>(sp => sp.GetRequiredService<IdempotencyContext>());
         return services;
     }
 
