@@ -2,7 +2,6 @@ using System.Text.Json;
 using CashManagement.Entries.Domain.Aggregates;
 using CashManagement.Entries.Domain.ValueObjects;
 using CashManagement.Entries.Infrastructure.Persistence;
-using CashManagement.Entries.Infrastructure.Repositories;
 using CashManagement.Entries.Infrastructure.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -10,19 +9,21 @@ using Xunit;
 
 namespace CashManagement.Entries.IntegrationTests.Persistence;
 
-public class EntryRepositoryTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifetime
+public class EventStoreTests : IClassFixture<MsSqlContainerFixture>, IAsyncLifetime
 {
     private readonly MsSqlContainerFixture _fixture;
     private EntriesDbContext _db = default!;
-    private EntryRepository _sut = default!;
+    private EventStore _eventStore = default!;
+    private UnitOfWork _unitOfWork = default!;
 
-    public EntryRepositoryTests(MsSqlContainerFixture fixture) => _fixture = fixture;
+    public EventStoreTests(MsSqlContainerFixture fixture) => _fixture = fixture;
 
     public async Task InitializeAsync()
     {
         _db = CreateDbContext();
         await _db.Database.EnsureCreatedAsync();
-        _sut = new EntryRepository(_db, new EventSerializer());
+        _eventStore = new EventStore(_db, new EventSerializer());
+        _unitOfWork = new UnitOfWork(_db);
     }
 
     public Task DisposeAsync()
@@ -40,12 +41,12 @@ public class EntryRepositoryTests : IClassFixture<MsSqlContainerFixture>, IAsync
     }
 
     [Fact]
-    public async Task SaveAsync_persists_event_and_outbox_atomically()
+    public async Task Append_and_commit_persists_event_and_outbox_atomically()
     {
         var id = Guid.NewGuid();
-        var entry = Entry.PostCredit(id, Money.Of(150m, "BRL"), DateTime.UtcNow);
 
-        await _sut.SaveAsync(entry);
+        _eventStore.Append(Entry.PostCredit(id, Money.Of(150m, "BRL"), DateTime.UtcNow));
+        await _unitOfWork.CommitAsync();
 
         await using var verify = CreateDbContext();
         (await verify.Events.CountAsync(e => e.AggregateId == id)).ShouldBe(1);
@@ -53,15 +54,15 @@ public class EntryRepositoryTests : IClassFixture<MsSqlContainerFixture>, IAsync
     }
 
     [Fact]
-    public async Task GetByIdAsync_rebuilds_entry_by_replay()
+    public async Task LoadAsync_rebuilds_entry_by_replay()
     {
         var id = Guid.NewGuid();
-        var occurredAt = DateTime.UtcNow;
-        await _sut.SaveAsync(Entry.PostCredit(id, Money.Of(200m, "BRL"), occurredAt));
+        _eventStore.Append(Entry.PostCredit(id, Money.Of(200m, "BRL"), DateTime.UtcNow));
+        await _unitOfWork.CommitAsync();
 
         await using var read = CreateDbContext();
-        var repo = new EntryRepository(read, new EventSerializer());
-        var entry = await repo.GetByIdAsync(id);
+        var eventStore = new EventStore(read, new EventSerializer());
+        var entry = await eventStore.LoadAsync<Entry>(id);
 
         entry.ShouldNotBeNull();
         entry!.Id.ShouldBe(id);
@@ -71,23 +72,26 @@ public class EntryRepositoryTests : IClassFixture<MsSqlContainerFixture>, IAsync
     }
 
     [Fact]
-    public async Task SaveAsync_with_conflicting_version_throws_concurrency_conflict()
+    public async Task Committing_a_conflicting_version_throws_concurrency_conflict()
     {
         var id = Guid.NewGuid();
-        await _sut.SaveAsync(Entry.PostCredit(id, Money.Of(10m, "BRL"), DateTime.UtcNow));
+        _eventStore.Append(Entry.PostCredit(id, Money.Of(10m, "BRL"), DateTime.UtcNow));
+        await _unitOfWork.CommitAsync();
 
         await using var second = CreateDbContext();
-        var repo = new EntryRepository(second, new EventSerializer());
-        var conflicting = Entry.PostCredit(id, Money.Of(20m, "BRL"), DateTime.UtcNow); // mesmo id => versão 1 de novo
+        var eventStore = new EventStore(second, new EventSerializer());
+        var unitOfWork = new UnitOfWork(second);
+        eventStore.Append(Entry.PostCredit(id, Money.Of(20m, "BRL"), DateTime.UtcNow)); // mesmo id => versão 1 de novo
 
-        await Should.ThrowAsync<ConcurrencyConflictException>(() => repo.SaveAsync(conflicting));
+        await Should.ThrowAsync<ConcurrencyConflictException>(() => unitOfWork.CommitAsync());
     }
 
     [Fact]
-    public async Task SaveAsync_writes_outbox_envelope_following_the_contract()
+    public async Task Outbox_envelope_follows_the_contract()
     {
         var id = Guid.NewGuid();
-        await _sut.SaveAsync(Entry.PostCredit(id, Money.Of(99m, "BRL"), DateTime.UtcNow));
+        _eventStore.Append(Entry.PostCredit(id, Money.Of(99m, "BRL"), DateTime.UtcNow));
+        await _unitOfWork.CommitAsync();
 
         await using var verify = CreateDbContext();
         var message = await verify.Outbox.SingleAsync(o => o.AggregateId == id);

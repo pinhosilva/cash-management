@@ -1,7 +1,7 @@
 using CashManagement.Entries.Application.Abstractions;
 using CashManagement.Entries.Application.Interfaces;
 using CashManagement.Entries.Domain.Aggregates;
-using CashManagement.Entries.Domain.Repositories;
+using CashManagement.Entries.Domain.Persistence;
 using CashManagement.Entries.Domain.SeedWork;
 using CashManagement.Entries.Domain.ValueObjects;
 
@@ -9,37 +9,38 @@ namespace CashManagement.Entries.Application.Features.PostCredit;
 
 /// <summary>
 /// Orquestra o registro de um crédito: valida → gera id → cria o agregado →
-/// persiste (eventos + outbox, na implementação do repositório). A regra de
-/// negócio vive no agregado; aqui é só orquestração. Não conhece SQL/Kafka.
+/// <b>encena</b> os eventos no event store (sem commit — o commit é do
+/// Unit of Work, no behavior do dispatcher). A regra vive no agregado; aqui é
+/// só orquestração. Não conhece SQL/Kafka/transação.
 /// </summary>
 public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand, Guid>
 {
-    private readonly IEntryRepository _repository;
+    private readonly IEventStore _eventStore;
     private readonly IIdGenerator _ids;
     private readonly PostCreditCommandValidator _validator;
 
     public PostCreditCommandHandler(
-        IEntryRepository repository,
+        IEventStore eventStore,
         IIdGenerator ids,
         PostCreditCommandValidator validator)
     {
-        _repository = repository;
+        _eventStore = eventStore;
         _ids = ids;
         _validator = validator;
     }
 
-    public async Task<Result<Guid>> HandleAsync(PostCreditCommand command)
+    public Task<Result<Guid>> HandleAsync(PostCreditCommand command)
     {
         var validation = _validator.Validate(command);
         if (validation.IsFailure)
         {
-            return Result.Fail<Guid>(validation.Error!);
+            return Task.FromResult(Result.Fail<Guid>(validation.Error!));
         }
 
         var id = _ids.New();
         var entry = Entry.PostCredit(id, Money.Of(command.Amount, "BRL"), command.OccurredAt);
-        await _repository.SaveAsync(entry);
+        _eventStore.Append(entry);
 
-        return Result.Ok(id);
+        return Task.FromResult(Result.Ok(id));
     }
 }

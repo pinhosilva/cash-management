@@ -9,6 +9,5 @@ namespace CashManagement.Entries.Application.Abstractions;
 /// </summary>
 public interface ICommandDispatcher
 {
-    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command)
-        where TCommand : ICommand<TResult>;
+    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command) where TCommand : ICommand<TResult>;
 }

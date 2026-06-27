@@ -12,14 +12,12 @@ public sealed class PostCreditCommandValidator
     {
         if (command.Amount <= 0)
         {
-            return Result.Fail(new Error(
-                "VALIDATION_FAILED", "Amount must be positive.", ErrorType.Validation));
+            return Result.Fail(new Error("VALIDATION_FAILED", "Amount must be positive.", ErrorType.Validation));
         }
 
         if (command.OccurredAt == default)
         {
-            return Result.Fail(new Error(
-                "VALIDATION_FAILED", "OccurredAt must be a valid date.", ErrorType.Validation));
+            return Result.Fail(new Error("VALIDATION_FAILED", "OccurredAt must be a valid date.", ErrorType.Validation));
         }
 
         return Result.Ok();

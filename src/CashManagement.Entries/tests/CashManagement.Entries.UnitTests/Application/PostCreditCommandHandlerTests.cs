@@ -2,7 +2,7 @@ using CashManagement.Entries.Application.Features.PostCredit;
 using CashManagement.Entries.Application.Interfaces;
 using CashManagement.Entries.Domain.Aggregates;
 using CashManagement.Entries.Domain.Events;
-using CashManagement.Entries.Domain.Repositories;
+using CashManagement.Entries.Domain.Persistence;
 using CashManagement.Entries.Domain.SeedWork;
 using CashManagement.Entries.UnitTests.Fixtures;
 using Moq;
@@ -16,8 +16,8 @@ public class When_posting_a_valid_credit
 {
     protected override PostCreditCommand When() => new(100m, DateTime.UtcNow);
 
-    protected override PostCreditCommandHandler CreateHandler(IEntryRepository repository, IIdGenerator idGenerator) =>
-        new(repository, idGenerator, new PostCreditCommandValidator());
+    protected override PostCreditCommandHandler CreateHandler(IEventStore eventStore, IIdGenerator idGenerator) =>
+        new(eventStore, idGenerator, new PostCreditCommandValidator());
 
     [Fact]
     public void Then_a_single_CreditPostedEvent_is_published() =>
@@ -31,8 +31,8 @@ public class When_posting_a_valid_credit
     }
 
     [Fact]
-    public void Then_the_entry_is_saved_once() =>
-        Repository.Verify(r => r.SaveAsync(It.IsAny<Entry>()), Times.Once);
+    public void Then_the_events_are_appended_once() =>
+        EventStore.Verify(s => s.Append(It.IsAny<Entry>()), Times.Once);
 }
 
 public class When_posting_a_non_positive_credit
@@ -40,8 +40,8 @@ public class When_posting_a_non_positive_credit
 {
     protected override PostCreditCommand When() => new(0m, DateTime.UtcNow);
 
-    protected override PostCreditCommandHandler CreateHandler(IEntryRepository repository, IIdGenerator idGenerator) =>
-        new(repository, idGenerator, new PostCreditCommandValidator());
+    protected override PostCreditCommandHandler CreateHandler(IEventStore eventStore, IIdGenerator idGenerator) =>
+        new(eventStore, idGenerator, new PostCreditCommandValidator());
 
     [Fact]
     public void Then_the_result_is_a_validation_failure()
@@ -55,6 +55,6 @@ public class When_posting_a_non_positive_credit
         PublishedEvents.ShouldBeEmpty();
 
     [Fact]
-    public void Then_the_entry_is_not_saved() =>
-        Repository.Verify(r => r.SaveAsync(It.IsAny<Entry>()), Times.Never);
+    public void Then_nothing_is_appended() =>
+        EventStore.Verify(s => s.Append(It.IsAny<AggregateRoot>()), Times.Never);
 }
