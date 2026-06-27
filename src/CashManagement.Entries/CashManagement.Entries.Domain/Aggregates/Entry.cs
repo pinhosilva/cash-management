@@ -12,12 +12,9 @@ namespace CashManagement.Entries.Domain.Aggregates;
 /// </summary>
 public sealed class Entry : AggregateRoot
 {
-    private Entry()
-    {
-    }
+    private Entry() {  }
 
     public EntryType Type { get; private set; } = null!;
-
     public Money Amount { get; private set; } = null!;
 
     /// <summary>Registra um crédito, emitindo o <see cref="CreditPostedEvent"/>.</summary>
@@ -25,14 +22,6 @@ public sealed class Entry : AggregateRoot
     {
         var entry = new Entry();
         entry.Emit(new CreditPostedEvent(id, amount, occurredAt));
-        return entry;
-    }
-
-    /// <summary>Reidrata o agregado a partir do histórico de eventos (replay).</summary>
-    public static Entry FromHistory(IEnumerable<IDomainEvent> history)
-    {
-        var entry = new Entry();
-        entry.LoadFromHistory(history);
         return entry;
     }
 

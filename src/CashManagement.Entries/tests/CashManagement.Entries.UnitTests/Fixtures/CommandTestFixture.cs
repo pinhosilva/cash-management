@@ -1,7 +1,6 @@
 using CashManagement.Entries.Application.Abstractions;
 using CashManagement.Entries.Application.Interfaces;
-using CashManagement.Entries.Domain.Aggregates;
-using CashManagement.Entries.Domain.Repositories;
+using CashManagement.Entries.Domain.Persistence;
 using CashManagement.Entries.Domain.SeedWork;
 using Moq;
 using Xunit;
@@ -21,7 +20,7 @@ public abstract class CommandTestFixture<TCommand, THandler, TAggregate> : IAsyn
 {
     protected Guid GeneratedId { get; } = Guid.NewGuid();
 
-    protected Mock<IEntryRepository> Repository { get; } = new();
+    protected Mock<IRepository> Repository { get; } = new();
 
     protected IReadOnlyCollection<IDomainEvent> PublishedEvents { get; private set; } = [];
 
@@ -29,9 +28,8 @@ public abstract class CommandTestFixture<TCommand, THandler, TAggregate> : IAsyn
 
     protected CommandTestFixture() =>
         Repository
-            .Setup(r => r.SaveAsync(It.IsAny<Entry>()))
-            .Callback<Entry>(entry => PublishedEvents = entry.UncommittedEvents.ToList())
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.Add(It.IsAny<AggregateRoot>()))
+            .Callback<AggregateRoot>(aggregate => PublishedEvents = aggregate.UncommittedEvents.ToList());
 
     public async Task InitializeAsync()
     {
@@ -44,7 +42,7 @@ public abstract class CommandTestFixture<TCommand, THandler, TAggregate> : IAsyn
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    protected abstract THandler CreateHandler(IEntryRepository repository, IIdGenerator idGenerator);
+    protected abstract THandler CreateHandler(IRepository repository, IIdGenerator idGenerator);
 
     protected abstract TCommand When();
 }

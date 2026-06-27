@@ -62,7 +62,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - `On<T>` não registrado para um evento → comportamento definido (lançar ou ignorar — **decida e documente**; recomendo lançar em DEBUG).
 
 **Implementar:**
-- `DomainEvent` (abstrata): carrega `AggregateId` (Guid).
+- `DomainEvent` (abstrata): carrega `AggregateId` (Guid) e `OccurredAt` (UTC).
 - `AggregateRoot` (abstrata): `Guid Id` (setter privado), `int Version`, `IReadOnlyCollection<IDomainEvent> UncommittedEvents`, `Emit(evento)` **`protected`**, `LoadFromHistory(...)`, `ClearUncommittedEvents()`, e o registro `On<TEvent>(Action<TEvent>)` chamado em `RegisterEvents()` (abstrato).
 - `Result` / `Result<T>` + `Error` (`code`, `message`, `ErrorType`): resultado de operação **sem exceção** — base do contrato de resposta (§4.4) e do Result pattern (§5.10).
 
@@ -72,7 +72,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - **Ordenação por `Version`** (incrementada a cada evento), **nunca** por relógio/`Ticks`/`Task.Delay` (sem qualquer *delay* no apply).
 - Timestamps em **UTC** (`DateTime.UtcNow` ou um `IClock` injetável), **nunca** `DateTime.Now`.
 - Roteamento de eventos por **composição** (dicionário privado encapsulado), **não** herdar de `Dictionary`.
-- **Sem reflection** no caminho de execução e **sem** sync-over-async (`.GetAwaiter().GetResult()`) — inclusive nas fixtures.
+- **Sem reflection no caminho de execução (hot path)** — ex.: igualdade de Value Object a cada comparação (use `record`) e roteamento de evento (use `On<T>()`). Reflection **é ok** onde é normal e barata, fora do caminho quente: container de DI, serialização, descoberta de tipos no startup. E **sem** sync-over-async (`.GetAwaiter().GetResult()`) — inclusive nas fixtures.
 
 **Critério de aceite:** testes acima verdes. `Domain` sem nenhuma dependência de pacote externo.
 
@@ -125,8 +125,8 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - `IIdGenerator` (interface) + impl simples (`Guid.NewGuid()`) na Infra/Api.
 - `PostCreditCommand(decimal Amount, DateTime OccurredAt) : ICommand<Guid>`.
 - **Validator** do comando (valor positivo, data válida) → devolve `Result` de falha (`ErrorType.Validation`) antes de tocar o domínio.
-- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `await _repository.SaveAsync(entry)`, retorna `Result.Ok(id)`. (ver sketch no README do Entries)
-- Interfaces consumidas: `IEntryRepository` (em `Domain/Repositories/`).
+- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `_repository.Add(entry)` (sem commit — o commit é do `IUnitOfWork`, na fronteira do caso de uso), retorna `Result.Ok(id)`. (ver sketch no README do Entries)
+- Portas consumidas: `IRepository` (em `Domain/Persistence/`).
 
 **Critério de aceite:** testes verdes; o handler não conhece SQL/Kafka (só interfaces).
 
@@ -137,13 +137,14 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 **Objetivo:** persistência append-only dos eventos **+** outbox na **mesma transação** (Transactional Outbox — §5.9).
 
 **Teste primeiro** (`Entries.IntegrationTests` com **Testcontainers** SQL Server):
-- `SaveAsync(entry)` grava o evento na tabela de eventos **e** uma linha na `outbox`, **atomicamente** (se um falhar, nada persiste).
-- `GetByIdAsync(id)` reconstrói o `Entry` por replay dos eventos.
+- `Append(entry)` + `CommitAsync()` gravam o evento na tabela de eventos **e** uma linha na `outbox`, **atomicamente** (se um falhar, nada persiste).
+- `GetAsync<Entry>(id)` reconstrói o `Entry` por replay dos eventos.
 - Concorrência otimista: salvar com versão esperada divergente → conflito (mapear para 409 depois).
 
-**Implementar (em `Entries.Infrastructure/Persistence` e `/Repositories`):**
+**Implementar (em `Entries.Infrastructure/Persistence`):**
 - EF Core `DbContext` com tabelas `Events` (stream append-only) e `Outbox`.
-- `EntryRepository : IEntryRepository`: `SaveAsync` abre **uma transação (Unit of Work)**, grava eventos não-commitados + linha de outbox (envelope da §4.3) + checagem de *expected version*, commit.
+- `Repository : IRepository` (`Add`) **encena** (sem commit) os eventos não-commitados + a linha de outbox (envelope da §4.3), de forma **genérica** (qualquer agregado), num só lugar.
+- `UnitOfWork : IUnitOfWork`: `CommitAsync` faz o **commit atômico** (um `SaveChanges`); a *expected version* é garantida pelo índice único `(AggregateId, Version)`. Acionado 1× na **fronteira do caso de uso** (request na API / orquestrador num pacotão), **fora** do event store e do dispatcher.
 
 **Critério de aceite:** testes de integração verdes; nenhuma escrita parcial possível.
 

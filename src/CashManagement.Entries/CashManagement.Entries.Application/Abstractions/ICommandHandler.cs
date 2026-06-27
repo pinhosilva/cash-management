@@ -6,8 +6,7 @@ namespace CashManagement.Entries.Application.Abstractions;
 /// Trata um <typeparamref name="TCommand"/> e devolve um
 /// <see cref="Result{TResult}"/> (sucesso/falha, sem exceção como controle de fluxo).
 /// </summary>
-public interface ICommandHandler<TCommand, TResult>
-    where TCommand : ICommand<TResult>
+public interface ICommandHandler<TCommand, TResult> where TCommand : ICommand<TResult>
 {
     Task<Result<TResult>> HandleAsync(TCommand command);
 }

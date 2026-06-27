@@ -8,4 +8,4 @@ namespace CashManagement.Entries.Domain.Events;
 /// (<see cref="DomainEvent.AggregateId"/>), o valor e o instante (UTC) da ocorrência.
 /// </summary>
 public sealed record CreditPostedEvent(Guid AggregateId, Money Amount, DateTime OccurredAt)
-    : DomainEvent(AggregateId);
+    : DomainEvent(AggregateId, OccurredAt);

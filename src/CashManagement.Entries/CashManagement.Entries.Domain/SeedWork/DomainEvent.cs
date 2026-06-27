@@ -1,8 +1,8 @@
 namespace CashManagement.Entries.Domain.SeedWork;
 
 /// <summary>
-/// Base dos eventos de domínio. Imutável (record) e portador do
-/// <see cref="AggregateId"/> — o stream a que o evento pertence.
+/// Base dos eventos de domínio. Imutável (record), portador do
+/// <see cref="AggregateId"/> (stream) e do <see cref="OccurredAt"/> (UTC).
 /// Eventos concretos (ex.: CreditPostedEvent) herdam desta base.
 /// </summary>
-public abstract record DomainEvent(Guid AggregateId) : IDomainEvent;
+public abstract record DomainEvent(Guid AggregateId, DateTime OccurredAt) : IDomainEvent;

@@ -15,10 +15,11 @@ em 4 camadas:
 
 ```
 CashManagement.Entries.Domain/         # Núcleo do domínio — sem dependências externas
+├── SeedWork/                          # Building blocks de ES (AggregateRoot, DomainEvent, Result/Error)
 ├── Aggregates/                        # Aggregate Roots (ex: Entry)
 ├── ValueObjects/                      # Value Objects (ex: Money, EntryType)
-├── Events/                            # Domain Events (ex: CreditPostedEvent, DebitPostedEvent)
-└── Repositories/                      # Interfaces de repositório (ex: IEntryRepository)
+├── Events/                            # Domain Events (ex: CreditPostedEvent)
+└── Persistence/                       # Portas de persistência (IRepository, IUnitOfWork)
 
 CashManagement.Entries.Application/    # Casos de uso (organizados por vertical slice)
 ├── Abstractions/                      # Building blocks de CQRS (ICommand, ICommandHandler, ICommandDispatcher)
@@ -27,9 +28,9 @@ CashManagement.Entries.Application/    # Casos de uso (organizados por vertical 
     └── PostCredit/                    # Command + Handler + Validator (+ DTOs) do caso de uso, juntos
 
 CashManagement.Entries.Infrastructure/ # Implementações concretas
-├── Persistence/                       # Event Store (SQL Server) — DbContext, migrations, tabela outbox
-├── Messaging/                         # Producer Kafka + relay da outbox
-└── Repositories/                      # Implementação concreta dos repositórios do Domain
+├── Persistence/                       # EF Core: DbContext, Repository, UnitOfWork + Models/ (POCOs) e Configurations/ (mapeamentos)
+├── Serialization/                     # (de)serialização de eventos ↔ JSON
+└── Messaging/                         # Producer Kafka + relay da outbox
 
 CashManagement.Entries.Api/            # Camada de entrada
 ├── Controllers/                       # Endpoints REST (ex: POST /entries)
@@ -145,18 +146,18 @@ public sealed record PostCreditCommand(decimal Amount, DateTime OccurredAt)
 
 public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand, Guid>
 {
-    private readonly IEntryRepository _repository;
+    private readonly IRepository _repository;
     private readonly IIdGenerator _ids;
 
-    public PostCreditCommandHandler(IEntryRepository repository, IIdGenerator ids)
+    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids)
         => (_repository, _ids) = (repository, ids);
 
-    public async Task<Result<Guid>> HandleAsync(PostCreditCommand cmd)
+    public Task<Result<Guid>> HandleAsync(PostCreditCommand cmd)
     {
         var id = _ids.New();                                          // id do stream / partition key
         var entry = Entry.PostCredit(id, Money.Of(cmd.Amount, "BRL"), cmd.OccurredAt);
-        await _repository.SaveAsync(entry);   // eventos + outbox na mesma transação (§5.9)
-        return Result.Ok(id);                 // o dispatcher devolve Result<Guid>
+        _repository.Add(entry);               // persiste o agregado; event store + outbox por baixo (§5.9)
+        return Task.FromResult(Result.Ok(id));// o commit é do IUnitOfWork, na fronteira do caso de uso
     }
 }
 ```
@@ -177,9 +178,12 @@ public async Task<IActionResult> Post(PostEntryDto dto)
 > `ErrorType` + `{ status, error }`. Exceção não-tratada vira `500` no mesmo
 > envelope (middleware global).
 
-> `SaveAsync` grava os eventos não-commitados do agregado no event store **e** o
-> registro de `outbox` na mesma transação, com verificação de *expected version*
-> (concorrência otimista). O relay publica no Kafka — ver Transactional Outbox na
+> `IRepository.Add` **encena** os eventos não-commitados do agregado **e** a
+> linha de `outbox` (envelope §4.3); o **commit** é do `IUnitOfWork`, acionado uma
+> vez na **fronteira do caso de uso** (request na API, ou um orquestrador num
+> "pacotão" de comandos) — fora do dispatcher, que só despacha (SRP). A
+> concorrência otimista (*expected version*) é verificada no commit. O relay publica no Kafka — ver
+> Transactional Outbox na
 > [§5.9](../../../docs/ARCHITECTURE.md#59-transactional-outbox-publicação-confiável).
 >
 > Num *retry* com a mesma `Idempotency-Key`, o dispatcher devolve o **id

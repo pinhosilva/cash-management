@@ -3,11 +3,15 @@ using CashManagement.Entries.Domain.SeedWork;
 namespace CashManagement.Entries.Application.Abstractions;
 
 /// <summary>
-/// Dispatcher próprio (Mediator enxuto). Resolve o
-/// <see cref="ICommandHandler{TCommand,TResult}"/> pelo <see cref="IServiceProvider"/>
-/// — tipo fechado conhecido em compilação, sem reflection. Handler não
-/// registrado é erro de configuração: falha rápida (lança), não é Result.
+/// Dispatcher próprio (Mediator enxuto) — <b>responsabilidade única</b>: resolver
+/// o <see cref="ICommandHandler{TCommand,TResult}"/> e despachar. Resolve pelo
+/// <see cref="IServiceProvider"/> (tipo fechado em compilação, sem reflection).
 /// </summary>
+/// <remarks>
+/// NÃO controla transação. O commit é do <c>IUnitOfWork</c>, acionado na
+/// fronteira do caso de uso (a request na API, ou um orquestrador quando vários
+/// comandos formam um "pacotão" com um único commit) — fora do dispatcher.
+/// </remarks>
 public sealed class CommandDispatcher : ICommandDispatcher
 {
     private readonly IServiceProvider _provider;
