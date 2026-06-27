@@ -10,13 +10,13 @@ namespace CashManagement.Entries.Infrastructure.Persistence;
 /// </summary>
 public sealed class EntriesDbContext : DbContext
 {
+    public DbSet<StoredEvent> Events => Set<StoredEvent>();
+    public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
+
     public EntriesDbContext(DbContextOptions<EntriesDbContext> options) : base(options)
     {
+
     }
-
-    public DbSet<StoredEvent> Events => Set<StoredEvent>();
-
-    public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(EntriesDbContext).Assembly);
