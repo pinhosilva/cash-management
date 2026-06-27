@@ -125,8 +125,8 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - `IIdGenerator` (interface) + impl simples (`Guid.NewGuid()`) na Infra/Api.
 - `PostCreditCommand(decimal Amount, DateTime OccurredAt) : ICommand<Guid>`.
 - **Validator** do comando (valor positivo, data válida) → devolve `Result` de falha (`ErrorType.Validation`) antes de tocar o domínio.
-- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `await _repository.SaveAsync(entry)`, retorna `Result.Ok(id)`. (ver sketch no README do Entries)
-- Interfaces consumidas: `IEntryRepository` (em `Domain/Repositories/`).
+- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `_eventStore.Append(entry)` (sem commit — o commit é do `IUnitOfWork`, no behavior do dispatcher), retorna `Result.Ok(id)`. (ver sketch no README do Entries)
+- Portas consumidas: `IEventStore` (em `Domain/Persistence/`).
 
 **Critério de aceite:** testes verdes; o handler não conhece SQL/Kafka (só interfaces).
 
@@ -137,13 +137,14 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 **Objetivo:** persistência append-only dos eventos **+** outbox na **mesma transação** (Transactional Outbox — §5.9).
 
 **Teste primeiro** (`Entries.IntegrationTests` com **Testcontainers** SQL Server):
-- `SaveAsync(entry)` grava o evento na tabela de eventos **e** uma linha na `outbox`, **atomicamente** (se um falhar, nada persiste).
-- `GetByIdAsync(id)` reconstrói o `Entry` por replay dos eventos.
+- `Append(entry)` + `CommitAsync()` gravam o evento na tabela de eventos **e** uma linha na `outbox`, **atomicamente** (se um falhar, nada persiste).
+- `LoadAsync<Entry>(id)` reconstrói o `Entry` por replay dos eventos.
 - Concorrência otimista: salvar com versão esperada divergente → conflito (mapear para 409 depois).
 
-**Implementar (em `Entries.Infrastructure/Persistence` e `/Repositories`):**
+**Implementar (em `Entries.Infrastructure/Persistence`):**
 - EF Core `DbContext` com tabelas `Events` (stream append-only) e `Outbox`.
-- `EntryRepository : IEntryRepository`: `SaveAsync` abre **uma transação (Unit of Work)**, grava eventos não-commitados + linha de outbox (envelope da §4.3) + checagem de *expected version*, commit.
+- `EventStore : IEventStore` **encena** (sem commit) os eventos não-commitados + a linha de outbox (envelope da §4.3), de forma **genérica** (qualquer agregado), num só lugar.
+- `UnitOfWork : IUnitOfWork`: `CommitAsync` faz o **commit atômico** (um `SaveChanges`); a *expected version* é garantida pelo índice único `(AggregateId, Version)`. Acionado 1× pelo behavior transacional do dispatcher (§5.10), **fora** do event store.
 
 **Critério de aceite:** testes de integração verdes; nenhuma escrita parcial possível.
 
