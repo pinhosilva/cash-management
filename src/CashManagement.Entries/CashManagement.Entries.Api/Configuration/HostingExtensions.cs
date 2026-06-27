@@ -2,7 +2,6 @@ using CashManagement.Entries.Api.Auth;
 using CashManagement.Entries.Api.Correlation;
 using CashManagement.Entries.Api.Http;
 using CashManagement.Entries.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Formatting.Compact;
 
@@ -44,9 +43,7 @@ public static class HostingExtensions
         builder.Services.AddInfrastructure(connectionString, kafkaBootstrap);
         builder.Services.AddCorrelation();
         builder.Services.AddJwtAuth(jwt);
-
-        builder.Services.AddHealthChecks()
-            .AddDbContextCheck<EntriesDbContext>("entries-db", tags: ["ready"]);
+        builder.Services.AddEntriesHealthChecks(kafkaBootstrap);
 
         return builder;
     }
@@ -70,11 +67,7 @@ public static class HostingExtensions
         app.UseAuthorization();
 
         app.MapControllers();
-        app.MapHealthChecks("/health/live");
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions
-        {
-            Predicate = check => check.Tags.Contains("ready"),
-        });
+        app.MapEntriesHealthChecks();
 
         return app;
     }
