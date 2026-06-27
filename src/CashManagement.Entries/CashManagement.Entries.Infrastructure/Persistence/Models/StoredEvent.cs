@@ -1,4 +1,4 @@
-namespace CashManagement.Entries.Infrastructure.Persistence;
+namespace CashManagement.Entries.Infrastructure.Persistence.Models;
 
 /// <summary>Linha do event store (append-only). Único por (AggregateId, Version).</summary>
 public sealed class StoredEvent

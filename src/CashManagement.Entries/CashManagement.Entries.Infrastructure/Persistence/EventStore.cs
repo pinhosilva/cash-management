@@ -2,6 +2,7 @@ using System.Text.Json;
 using CashManagement.Entries.Domain.Persistence;
 using CashManagement.Entries.Domain.SeedWork;
 using CashManagement.Entries.Infrastructure.Messaging;
+using CashManagement.Entries.Infrastructure.Persistence.Models;
 using CashManagement.Entries.Infrastructure.Serialization;
 using Microsoft.EntityFrameworkCore;
 

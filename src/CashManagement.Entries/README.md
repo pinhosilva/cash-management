@@ -28,7 +28,7 @@ CashManagement.Entries.Application/    # Casos de uso (organizados por vertical 
     └── PostCredit/                    # Command + Handler + Validator (+ DTOs) do caso de uso, juntos
 
 CashManagement.Entries.Infrastructure/ # Implementações concretas
-├── Persistence/                       # EF Core: DbContext, event store, Unit of Work, tabela outbox
+├── Persistence/                       # EF Core: DbContext, EventStore, UnitOfWork + Models/ (POCOs) e Configurations/ (mapeamentos)
 ├── Serialization/                     # (de)serialização de eventos ↔ JSON
 └── Messaging/                         # Producer Kafka + relay da outbox
 

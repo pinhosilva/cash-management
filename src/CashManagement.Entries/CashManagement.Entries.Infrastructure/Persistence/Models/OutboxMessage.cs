@@ -1,4 +1,4 @@
-namespace CashManagement.Entries.Infrastructure.Persistence;
+namespace CashManagement.Entries.Infrastructure.Persistence.Models;
 
 /// <summary>
 /// Mensagem da Transactional Outbox (§5.9). Gravada na mesma transação do evento;
