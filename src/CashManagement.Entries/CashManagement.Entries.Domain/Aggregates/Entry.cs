@@ -25,14 +25,6 @@ public sealed class Entry : AggregateRoot
         return entry;
     }
 
-    /// <summary>Reidrata o agregado a partir do histórico de eventos (replay).</summary>
-    public static Entry FromHistory(IEnumerable<IDomainEvent> history)
-    {
-        var entry = new Entry();
-        entry.LoadFromHistory(history);
-        return entry;
-    }
-
     protected override void RegisterEvents() =>
         On<CreditPostedEvent>(e =>
         {

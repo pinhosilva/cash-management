@@ -13,8 +13,6 @@ public class When_posting_a_credit : AggregateTestFixture<Entry>
     private readonly Guid _id = Guid.NewGuid();
     private readonly DateTime _occurredAt = DateTime.UtcNow;
 
-    public When_posting_a_credit() : base(Entry.FromHistory) { }
-
     protected override Entry When() => Entry.PostCredit(_id, Money.Of(100m, "BRL"), _occurredAt);
 
     [Fact]
@@ -44,8 +42,6 @@ public class When_posting_a_credit : AggregateTestFixture<Entry>
 public class When_replaying_a_credit : AggregateTestFixture<Entry>
 {
     private readonly Guid _id = Guid.NewGuid();
-
-    public When_replaying_a_credit() : base(Entry.FromHistory) { }
 
     protected override IEnumerable<IDomainEvent> Given() =>
     [

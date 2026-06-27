@@ -10,16 +10,12 @@ namespace CashManagement.Entries.UnitTests.Fixtures;
 ///   <item>Then = asserção sobre <see cref="PublishedEvents"/> ou o estado do
 ///   <see cref="AggregateRoot"/>.</item>
 /// </list>
-/// A reidratação é injetada (ex.: <c>Entry.FromHistory</c>) — sem reflection.
+/// A reidratação usa <c>AggregateRoot.FromHistory</c> (reflection no load).
 /// </summary>
 public abstract class AggregateTestFixture<TAggregate>
     where TAggregate : AggregateRoot
 {
-    private readonly Func<IEnumerable<IDomainEvent>, TAggregate> _rehydrate;
     private TAggregate? _sut;
-
-    protected AggregateTestFixture(Func<IEnumerable<IDomainEvent>, TAggregate> rehydrate) =>
-        _rehydrate = rehydrate;
 
     /// <summary>SUT: reconstruído do <c>Given()</c> (replay) ou produzido pelo <c>When()</c> (criação).</summary>
     protected TAggregate AggregateRoot => _sut ??= Build();
@@ -37,6 +33,8 @@ public abstract class AggregateTestFixture<TAggregate>
     private TAggregate Build()
     {
         var history = Given().ToList();
-        return history.Count > 0 ? _rehydrate(history) : When();
+        return history.Count > 0
+            ? CashManagement.Entries.Domain.SeedWork.AggregateRoot.FromHistory<TAggregate>(history)
+            : When();
     }
 }

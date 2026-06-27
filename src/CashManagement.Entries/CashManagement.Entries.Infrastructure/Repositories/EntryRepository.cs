@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CashManagement.Entries.Domain.Aggregates;
 using CashManagement.Entries.Domain.Repositories;
+using CashManagement.Entries.Domain.SeedWork;
 using CashManagement.Entries.Infrastructure.Messaging;
 using CashManagement.Entries.Infrastructure.Persistence;
 using CashManagement.Entries.Infrastructure.Serialization;
@@ -105,7 +106,7 @@ public sealed class EntryRepository : IEntryRepository
         }
 
         var history = stored.Select(e => _serializer.Deserialize(e.Type, e.Data));
-        return Entry.FromHistory(history);
+        return AggregateRoot.FromHistory<Entry>(history);
     }
 
     private static bool IsUniqueViolation(DbUpdateException ex) =>

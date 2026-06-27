@@ -27,6 +27,19 @@ public abstract class AggregateRoot
     public IReadOnlyCollection<IDomainEvent> UncommittedEvents => _uncommittedEvents;
 
     /// <summary>
+    /// Reconstrói um agregado a partir do histórico (replay). Cria a instância
+    /// pelo construtor sem-parâmetro (mesmo privado) via reflection — uma vez por
+    /// load (fora do hot path), mantendo o ctor encapsulado.
+    /// </summary>
+    public static TAggregate FromHistory<TAggregate>(IEnumerable<IDomainEvent> history)
+        where TAggregate : AggregateRoot
+    {
+        var aggregate = (TAggregate)Activator.CreateInstance(typeof(TAggregate), nonPublic: true)!;
+        aggregate.LoadFromHistory(history);
+        return aggregate;
+    }
+
+    /// <summary>
     /// Reconstrói o estado a partir do histórico (replay), sem marcar os
     /// eventos como não-commitados.
     /// </summary>
