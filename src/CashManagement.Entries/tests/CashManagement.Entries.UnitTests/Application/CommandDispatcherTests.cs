@@ -12,7 +12,7 @@ public class CommandDispatcherTests
 
     private sealed class FakeHandler : ICommandHandler<FakeCommand, int>
     {
-        public Task<Result<int>> HandleAsync(FakeCommand command) =>
+        public Task<Result<int>> HandleAsync(FakeCommand command, CancellationToken cancellationToken = default) =>
             Task.FromResult(Result.Ok(command.Value * 2));
     }
 

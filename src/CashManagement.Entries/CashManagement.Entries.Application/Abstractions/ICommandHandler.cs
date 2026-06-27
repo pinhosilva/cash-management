@@ -8,5 +8,5 @@ namespace CashManagement.Entries.Application.Abstractions;
 /// </summary>
 public interface ICommandHandler<TCommand, TResult> where TCommand : ICommand<TResult>
 {
-    Task<Result<TResult>> HandleAsync(TCommand command);
+    Task<Result<TResult>> HandleAsync(TCommand command, CancellationToken cancellationToken = default);
 }

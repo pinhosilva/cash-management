@@ -19,11 +19,11 @@ public sealed class UnitOfWork : IUnitOfWork
 
     public UnitOfWork(EntriesDbContext db) => _db = db;
 
-    public async Task CommitAsync()
+    public async Task CommitAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {

@@ -18,7 +18,7 @@ public sealed class CommandDispatcher : ICommandDispatcher
 
     public CommandDispatcher(IServiceProvider provider) => _provider = provider;
 
-    public Task<Result<TResult>> Send<TCommand, TResult>(TCommand command)
+    public Task<Result<TResult>> Send<TCommand, TResult>(TCommand command, CancellationToken cancellationToken = default)
         where TCommand : ICommand<TResult>
     {
         var handler = (ICommandHandler<TCommand, TResult>?)_provider
@@ -26,6 +26,6 @@ public sealed class CommandDispatcher : ICommandDispatcher
             ?? throw new InvalidOperationException(
                 $"No handler registered for command '{typeof(TCommand).Name}'.");
 
-        return handler.HandleAsync(command);
+        return handler.HandleAsync(command, cancellationToken);
     }
 }

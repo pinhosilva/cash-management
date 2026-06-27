@@ -70,7 +70,7 @@ public sealed class EntriesController : ControllerBase
 
         var occurredAt = NormalizeToUtc(request.OccurredAt ?? DateTime.UtcNow);
         var command = new PostCreditCommand(request.Amount, occurredAt);
-        var result = await _dispatcher.Send<PostCreditCommand, Guid>(command);
+        var result = await _dispatcher.Send<PostCreditCommand, Guid>(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -84,7 +84,7 @@ public sealed class EntriesController : ControllerBase
             _idempotency.Add(idempotencyKey, id);
         }
 
-        await _unitOfWork.CommitAsync();
+        await _unitOfWork.CommitAsync(cancellationToken);
 
         _logger.LogInformation("Credit posted. {component} {aggregateId}", LogComponent.Controller, id);
 
