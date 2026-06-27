@@ -127,12 +127,12 @@ public interface ICommand<TResult> { }
 
 public interface ICommandHandler<TCommand, TResult> where TCommand : ICommand<TResult>
 {
-    Task<Result<TResult>> HandleAsync(TCommand command);
+    Task<Result<TResult>> HandleAsync(TCommand command, CancellationToken cancellationToken = default);
 }
 
 public interface ICommandDispatcher
 {
-    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command)
+    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command, CancellationToken cancellationToken = default)
         where TCommand : ICommand<TResult>;
 }
 ```
@@ -148,12 +148,17 @@ public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand
 {
     private readonly IRepository _repository;
     private readonly IIdGenerator _ids;
+    private readonly PostCreditCommandValidator _validator;
 
-    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids)
-        => (_repository, _ids) = (repository, ids);
+    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids, PostCreditCommandValidator validator)
+        => (_repository, _ids, _validator) = (repository, ids, validator);
 
-    public Task<Result<Guid>> HandleAsync(PostCreditCommand cmd)
+    public Task<Result<Guid>> HandleAsync(PostCreditCommand cmd, CancellationToken ct = default)
     {
+        var validation = _validator.Validate(cmd);                    // valida antes de tocar o domínio
+        if (validation.IsFailure)
+            return Task.FromResult(Result.Fail<Guid>(validation.Error!));
+
         var id = _ids.New();                                          // id do stream / partition key
         var entry = Entry.PostCredit(id, Money.Of(cmd.Amount, "BRL"), cmd.OccurredAt);
         _repository.Add(entry);               // persiste o agregado; event store + outbox por baixo (§5.9)
