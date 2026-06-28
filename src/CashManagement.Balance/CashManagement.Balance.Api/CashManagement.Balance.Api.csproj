@@ -5,6 +5,16 @@
     <ProjectReference Include="..\CashManagement.Balance.Infrastructure\CashManagement.Balance.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharpCompress (transitivo do MongoDB.Driver via Infrastructure) sem correção publicada — ver Infrastructure.csproj. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-6c8g-7p36-r338" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
