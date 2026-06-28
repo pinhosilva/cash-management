@@ -13,6 +13,7 @@ using CashManagement.Entries.Infrastructure.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
 namespace CashManagement.Entries.Api.Configuration;
@@ -20,6 +21,10 @@ namespace CashManagement.Entries.Api.Configuration;
 /// <summary>Wire-up de DI da API: Application, Infra, EF Core, auth e correlação.</summary>
 public static class ServiceCollectionExtensions
 {
+    internal const string DefaultConnectionString =
+        "Server=localhost;Database=CashManagementEntries;Trusted_Connection=True;TrustServerCertificate=True;";
+    internal const string DefaultKafkaBootstrap = "localhost:9092";
+
     /// <summary>
     /// Registra o pipeline da Application (dispatcher + handler + validator). O handler
     /// de <c>PostCredit</c> é <b>decorado</b> pelo behavior de idempotência (§5.10): a
@@ -38,10 +43,21 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>Registra a Infra: EF Core (SQL Server), repositório, UoW, idempotência, id, publisher e relay.</summary>
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string connectionString, string kafkaBootstrap)
+    /// <summary>
+    /// Registra a Infra: EF Core (SQL Server), repositório, UoW, idempotência, id,
+    /// publisher e relay. Lê tudo da <see cref="IConfiguration"/> — connection string,
+    /// Kafka (bootstrap + tópico) e as options de tuning (outbox, idempotência).
+    /// </summary>
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        var connectionString = configuration.GetConnectionString("Entries") ?? DefaultConnectionString;
+        var kafka = configuration.GetSection("Kafka");
+        var kafkaBootstrap = kafka["BootstrapServers"] ?? DefaultKafkaBootstrap;
+        var kafkaTopic = kafka["Topic"]; // null => KafkaEventPublisher.DefaultTopic
+
         services.AddDbContext<EntriesDbContext>(options => options.UseSqlServer(connectionString));
+        services.Configure<OutboxOptions>(configuration.GetSection(OutboxOptions.SectionName));
+        services.Configure<IdempotencyOptions>(configuration.GetSection(IdempotencyOptions.SectionName));
 
         services.AddSingleton<EventSerializer>();
         services.AddScoped<IRepository, Repository>();
@@ -49,7 +65,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IIdGenerator, GuidIdGenerator>();
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
 
-        services.AddSingleton<IEventPublisher>(_ => new KafkaEventPublisher(kafkaBootstrap));
+        services.AddSingleton<IEventPublisher>(_ => new KafkaEventPublisher(kafkaBootstrap, kafkaTopic));
         services.AddScoped<OutboxProcessor>();
         services.AddHostedService<OutboxRelayService>();
 

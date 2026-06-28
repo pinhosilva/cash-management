@@ -15,8 +15,6 @@ namespace CashManagement.Entries.Api.Configuration;
 /// </summary>
 public static class HostingExtensions
 {
-    private const string DefaultConnectionString =
-        "Server=localhost;Database=CashManagementEntries;Trusted_Connection=True;TrustServerCertificate=True;";
     private const string DevSigningKey = "dev-signing-key-change-me-please-32-bytes-minimum";
 
     /// <summary>Registra logging estruturado, configuração e todos os serviços da API.</summary>
@@ -30,9 +28,6 @@ public static class HostingExtensions
             .Enrich.WithProperty("environment", context.HostingEnvironment.EnvironmentName)
             .WriteTo.Console(new CompactJsonFormatter()));
 
-        var configuration = builder.Configuration;
-        var connectionString = configuration.GetConnectionString("Entries") ?? DefaultConnectionString;
-        var kafkaBootstrap = configuration["Kafka:BootstrapServers"] ?? "localhost:9092";
         var jwt = ResolveJwt(builder);
 
         builder.Services.AddControllers();
@@ -40,10 +35,10 @@ public static class HostingExtensions
         builder.Services.AddSwaggerGen();
 
         builder.Services.AddApplication();
-        builder.Services.AddInfrastructure(connectionString, kafkaBootstrap);
+        builder.Services.AddInfrastructure(builder.Configuration);
         builder.Services.AddCorrelation();
         builder.Services.AddJwtAuth(jwt);
-        builder.Services.AddEntriesHealthChecks(kafkaBootstrap);
+        builder.Services.AddEntriesHealthChecks(builder.Configuration);
 
         return builder;
     }

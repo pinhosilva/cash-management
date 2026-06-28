@@ -2,6 +2,7 @@ using System.Text.Json;
 using CashManagement.Entries.Infrastructure.Messaging;
 using CashManagement.Entries.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace CashManagement.Entries.Api.Configuration;
@@ -19,8 +20,11 @@ namespace CashManagement.Entries.Api.Configuration;
 public static class HealthCheckExtensions
 {
     /// <summary>Registra os checks: SQL (tag <c>ready</c>, gateia) e Kafka (tag <c>deps</c>, só visibilidade).</summary>
-    public static IServiceCollection AddEntriesHealthChecks(this IServiceCollection services, string kafkaBootstrap)
+    public static IServiceCollection AddEntriesHealthChecks(this IServiceCollection services, IConfiguration configuration)
     {
+        var kafkaBootstrap = configuration.GetSection("Kafka")["BootstrapServers"]
+            ?? ServiceCollectionExtensions.DefaultKafkaBootstrap;
+
         services.AddHealthChecks()
             .AddDbContextCheck<EntriesDbContext>("sql-server", tags: ["ready"])
             .AddCheck("kafka", new KafkaHealthCheck(kafkaBootstrap), tags: ["deps"]);

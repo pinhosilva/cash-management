@@ -10,17 +10,21 @@ namespace CashManagement.Entries.Infrastructure.Messaging;
 /// </summary>
 public sealed class KafkaEventPublisher : IEventPublisher, IDisposable
 {
-    public const string Topic = "cash.management.entries.events";
+    public const string DefaultTopic = "cash.management.entries.events";
 
     private readonly IProducer<string, string> _producer;
+    private readonly string _topic;
 
-    public KafkaEventPublisher(string bootstrapServers) =>
+    public KafkaEventPublisher(string bootstrapServers, string? topic = null)
+    {
         _producer = new ProducerBuilder<string, string>(
             new ProducerConfig { BootstrapServers = bootstrapServers }).Build();
+        _topic = string.IsNullOrWhiteSpace(topic) ? DefaultTopic : topic;
+    }
 
     public async Task PublishAsync(string key, string payload, CancellationToken cancellationToken = default) =>
         await _producer.ProduceAsync(
-            Topic,
+            _topic,
             new Message<string, string> { Key = key, Value = payload },
             cancellationToken);
 
