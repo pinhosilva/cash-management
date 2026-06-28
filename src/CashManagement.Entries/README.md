@@ -195,6 +195,32 @@ public async Task<IActionResult> Post(PostEntryDto dto)
 > original** (a deduplicação é um *behavior* em volta do `Send`), sem recriar o
 > agregado.
 
+## Configuração
+
+Tudo que muda por ambiente ou é knob de operação vive no `appsettings.json` (a chave
+de assinatura JWT vem de **variável de ambiente / secret**, nunca commitada). Premissas
+de negócio (moeda **BRL**, scope `entries:write`) ficam em código, de propósito.
+
+| Chave | Default | O que é |
+|---|---|---|
+| `ConnectionStrings:Entries` | SQL local | Connection string do event store |
+| `Kafka:BootstrapServers` | `localhost:9092` | Brokers do Kafka |
+| `Kafka:Topic` | `cash.management.entries.events` | Tópico de publicação do relay |
+| `Jwt:Issuer` / `Jwt:Audience` | `cash-management` / `cash-management-entries` | Validação do JWT |
+| `ENTRIES_JWT_SIGNING_KEY` (env) | — | Chave de assinatura; **obrigatória fora de Development** |
+| `Outbox:PollIntervalSeconds` | `2` | Intervalo de polling do relay |
+| `Idempotency:WindowHours` | `24` | Janela de dedup de idempotência |
+
+### Feature flags (seção `Features`)
+
+Cada flag é **anulável**: `null` = segue o ambiente (`!Production`); `true`/`false` = força.
+
+| Flag | `null` ⇒ | Efeito |
+|---|---|---|
+| `Features:Swagger` | Swagger fora de produção | Liga/desliga o Swagger UI |
+| `Features:DevTokenEndpoint` | `/dev/token` fora de produção | Liga/desliga o emissor de token de dev — **sempre 404 em produção** |
+| `Features:AutoCreateSchema` | `EnsureCreated` fora de produção | Cria o schema no startup (em prod use migrations) |
+
 ## Como rodar localmente
 
 Ver instruções na raiz do repositório (`docker-compose up --build`).

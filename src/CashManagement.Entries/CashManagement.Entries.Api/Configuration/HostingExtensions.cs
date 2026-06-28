@@ -2,6 +2,7 @@ using CashManagement.Entries.Api.Auth;
 using CashManagement.Entries.Api.Correlation;
 using CashManagement.Entries.Api.Http;
 using CashManagement.Entries.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Formatting.Compact;
 
@@ -34,6 +35,8 @@ public static class HostingExtensions
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
 
+        builder.Services.Configure<FeatureFlags>(builder.Configuration.GetSection(FeatureFlags.SectionName));
+
         builder.Services.AddApplication();
         builder.Services.AddInfrastructure(builder.Configuration);
         builder.Services.AddCorrelation();
@@ -43,15 +46,21 @@ public static class HostingExtensions
         return builder;
     }
 
-    /// <summary>Monta o schema em dev, o pipeline de middleware (§4.4/§8.2) e os endpoints.</summary>
+    /// <summary>Monta o schema (conforme flag), o pipeline de middleware (§4.4/§8.2) e os endpoints.</summary>
     public static WebApplication UseEntriesApi(this WebApplication app)
     {
-        // Garante o schema em ambientes não-produtivos (em produção usa-se migrations).
-        if (!app.Environment.IsProduction())
+        var features = app.Services.GetRequiredService<IOptions<FeatureFlags>>().Value;
+        var nonProduction = !app.Environment.IsProduction();
+
+        // Cria o schema via EnsureCreated (default: fora de produção; em prod usa-se migrations).
+        if (features.AutoCreateSchema ?? nonProduction)
         {
             using var scope = app.Services.CreateScope();
             scope.ServiceProvider.GetRequiredService<EntriesDbContext>().Database.EnsureCreated();
+        }
 
+        if (features.Swagger ?? nonProduction)
+        {
             app.UseSwagger();
             app.UseSwaggerUI();
         }
