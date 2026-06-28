@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.9 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.10 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -969,14 +969,17 @@ Projetada para **recuperar de falhas**, não para fingir que elas não ocorrem:
   - **Liveness** (`/health/live`): se a instância travar, o orquestrador a
     **reinicia**.
   - **Readiness** (`/health/ready`): verifica só as dependências que a API
-    **precisa** para servir (Entries: **só SQL Server** — o Outbox desacopla a
-    publicação do caminho da request, então um Kafka fora **não** tira a API do
-    balanceador; Balance: MongoDB + Kafka). Enquanto não estiverem acessíveis, a
-    instância é **tirada do balanceador** (não recebe tráfego) sem ser morta —
-    evitando responder a uma requisição que iria falhar.
+    **precisa** para servir a requisição síncrona — em ambos os serviços, **só o
+    banco** (Entries: **SQL Server**; Balance: **MongoDB**). O Kafka **não** gateia
+    nenhum dos dois: no Entries o Outbox desacopla a publicação do caminho da
+    request; no Balance, a consulta de saldo é servida direto da projeção Mongo,
+    enquanto o consumo do Kafka é um fluxo assíncrono à parte. Enquanto o banco não
+    estiver acessível, a instância é **tirada do balanceador** (não recebe tráfego)
+    sem ser morta — evitando responder a uma requisição que iria falhar.
   - **Visão completa** (`/health`): reporta **todas** as dependências com o status
-    de cada uma (Entries: SQL + Kafka) para dashboards/diagnóstico — **sem gatear**
-    tráfego; é o lugar onde o status do Kafka aparece sem comprometer o readiness.
+    de cada uma (Entries: SQL + Kafka; Balance: Mongo + Kafka) para
+    dashboards/diagnóstico — **sem gatear** tráfego; é o lugar onde o status do
+    Kafka aparece sem comprometer o readiness.
   - Implementados com os **HealthChecks nativos do ASP.NET Core** (o check de Kafka
     é um `IHealthCheck` próprio que busca metadata do cluster com timeout).
 - **Recuperação automática do consumo:** o Kafka retém os eventos; ao voltar, o
@@ -1648,6 +1651,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.10 | 2026-06-28 | T10 (API do Balance): readiness de **ambos** os serviços passa a cobrir **só o banco** (Entries: SQL; Balance: Mongo) — o Kafka não gateia nenhum dos dois e aparece como visibilidade em `/health` (§7.1), coerência com a decisão do Entries (v1.0.9). |
 | 1.0.9 | 2026-06-27 | Estrutura da Api: *composition root* (`HostingExtensions`) enxuga o `Program.cs`; health checks em extensão dedicada com endpoint `/health` (SQL + Kafka, **visibilidade sem gatear**) além de `/health/live` e `/health/ready` (§7.1) — o Kafka tem um `IHealthCheck` próprio e segue fora do readiness. |
 | 1.0.8 | 2026-06-27 | Revisão pós-T08: dedup de idempotência movida para um *behavior* (`IdempotentCommandHandler`) em volta do `Send` (§5.10) — controller fino; `OccurredAt` normalizado para **UTC** na borda antes do event store; `/dev/token` responde **404** em produção e a chave JWT é **obrigatória fora de Development** (§8.1/§9.1); readiness do Entries cobre **só SQL** nesta fatia (§7.1). |
 | 1.0.7 | 2026-06-27 | T07 (relay): a porta `IEventPublisher` (publicação no Kafka pelo relay) vive na **Application** — ajuste do DIP em §5.10. |

@@ -1,4 +1,5 @@
 using CashManagement.Balance.Application.Features.BalanceProjection;
+using CashManagement.Balance.Application.Features.GetDailyBalance;
 using CashManagement.Balance.Infrastructure.Messaging;
 using CashManagement.Balance.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
@@ -33,6 +34,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IDailyBalanceProjection, MongoDailyBalanceProjection>();
+        services.AddScoped<IDailyBalanceReader, MongoDailyBalanceReader>();
         services.AddScoped<CreditPostedEventHandler>();
 
         services.AddHostedService<KafkaConsumerService>();
