@@ -8,5 +8,5 @@ namespace CashManagement.Entries.Domain.Persistence;
 /// </summary>
 public interface IUnitOfWork
 {
-    Task CommitAsync();
+    Task CommitAsync(CancellationToken cancellationToken = default);
 }

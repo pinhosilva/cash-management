@@ -127,12 +127,12 @@ public interface ICommand<TResult> { }
 
 public interface ICommandHandler<TCommand, TResult> where TCommand : ICommand<TResult>
 {
-    Task<Result<TResult>> HandleAsync(TCommand command);
+    Task<Result<TResult>> HandleAsync(TCommand command, CancellationToken cancellationToken = default);
 }
 
 public interface ICommandDispatcher
 {
-    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command)
+    Task<Result<TResult>> Send<TCommand, TResult>(TCommand command, CancellationToken cancellationToken = default)
         where TCommand : ICommand<TResult>;
 }
 ```
@@ -148,12 +148,17 @@ public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand
 {
     private readonly IRepository _repository;
     private readonly IIdGenerator _ids;
+    private readonly PostCreditCommandValidator _validator;
 
-    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids)
-        => (_repository, _ids) = (repository, ids);
+    public PostCreditCommandHandler(IRepository repository, IIdGenerator ids, PostCreditCommandValidator validator)
+        => (_repository, _ids, _validator) = (repository, ids, validator);
 
-    public Task<Result<Guid>> HandleAsync(PostCreditCommand cmd)
+    public Task<Result<Guid>> HandleAsync(PostCreditCommand cmd, CancellationToken ct = default)
     {
+        var validation = _validator.Validate(cmd);                    // valida antes de tocar o domínio
+        if (validation.IsFailure)
+            return Task.FromResult(Result.Fail<Guid>(validation.Error!));
+
         var id = _ids.New();                                          // id do stream / partition key
         var entry = Entry.PostCredit(id, Money.Of(cmd.Amount, "BRL"), cmd.OccurredAt);
         _repository.Add(entry);               // persiste o agregado; event store + outbox por baixo (§5.9)
@@ -189,6 +194,32 @@ public async Task<IActionResult> Post(PostEntryDto dto)
 > Num *retry* com a mesma `Idempotency-Key`, o dispatcher devolve o **id
 > original** (a deduplicação é um *behavior* em volta do `Send`), sem recriar o
 > agregado.
+
+## Configuração
+
+Tudo que muda por ambiente ou é knob de operação vive no `appsettings.json` (a chave
+de assinatura JWT vem de **variável de ambiente / secret**, nunca commitada). Premissas
+de negócio (moeda **BRL**, scope `entries:write`) ficam em código, de propósito.
+
+| Chave | Default | O que é |
+|---|---|---|
+| `ConnectionStrings:Entries` | SQL local | Connection string do event store |
+| `Kafka:BootstrapServers` | `localhost:9092` | Brokers do Kafka |
+| `Kafka:Topic` | `cash.management.entries.events` | Tópico de publicação do relay |
+| `Jwt:Issuer` / `Jwt:Audience` | `cash-management` / `cash-management-entries` | Validação do JWT |
+| `ENTRIES_JWT_SIGNING_KEY` (env) | — | Chave de assinatura; **obrigatória fora de Development** |
+| `Outbox:PollIntervalSeconds` | `2` | Intervalo de polling do relay |
+| `Idempotency:WindowHours` | `24` | Janela de dedup de idempotência |
+
+### Feature flags (seção `Features`)
+
+Cada flag é **anulável**: `null` = segue o ambiente (`!Production`); `true`/`false` = força.
+
+| Flag | `null` ⇒ | Efeito |
+|---|---|---|
+| `Features:Swagger` | Swagger fora de produção | Liga/desliga o Swagger UI |
+| `Features:DevTokenEndpoint` | `/dev/token` fora de produção | Liga/desliga o emissor de token de dev — **sempre 404 em produção** |
+| `Features:AutoCreateSchema` | `EnsureCreated` fora de produção | Cria o schema no startup (em prod use migrations) |
 
 ## Como rodar localmente
 

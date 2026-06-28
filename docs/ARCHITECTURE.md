@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.7 (ver Histórico de Revisões no fim do documento)                                                                                              |
+| **Versão**              | 1.0.9 (ver Histórico de Revisões no fim do documento)                                                                                              |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -968,11 +968,17 @@ Projetada para **recuperar de falhas**, não para fingir que elas não ocorrem:
   que o orquestrador (Kubernetes / compose) usa para agir **automaticamente**:
   - **Liveness** (`/health/live`): se a instância travar, o orquestrador a
     **reinicia**.
-  - **Readiness** (`/health/ready`): verifica as dependências (Entries: SQL
-    Server + Kafka; Balance: MongoDB + Kafka). Enquanto não estiverem
-    acessíveis, a instância é **tirada do balanceador** (não recebe tráfego) sem
-    ser morta — evitando responder a uma requisição que iria falhar.
-  - Implementados com os **HealthChecks nativos do ASP.NET Core**.
+  - **Readiness** (`/health/ready`): verifica só as dependências que a API
+    **precisa** para servir (Entries: **só SQL Server** — o Outbox desacopla a
+    publicação do caminho da request, então um Kafka fora **não** tira a API do
+    balanceador; Balance: MongoDB + Kafka). Enquanto não estiverem acessíveis, a
+    instância é **tirada do balanceador** (não recebe tráfego) sem ser morta —
+    evitando responder a uma requisição que iria falhar.
+  - **Visão completa** (`/health`): reporta **todas** as dependências com o status
+    de cada uma (Entries: SQL + Kafka) para dashboards/diagnóstico — **sem gatear**
+    tráfego; é o lugar onde o status do Kafka aparece sem comprometer o readiness.
+  - Implementados com os **HealthChecks nativos do ASP.NET Core** (o check de Kafka
+    é um `IHealthCheck` próprio que busca metadata do cluster com timeout).
 - **Recuperação automática do consumo:** o Kafka retém os eventos; ao voltar, o
   Balance **retoma do offset** onde parou (§4.2), e a idempotência (§4.3) torna
   o reprocessamento seguro.
@@ -1355,8 +1361,9 @@ docker-compose --profile observability up --build
 
 **Autenticação em desenvolvimento:** para testar localmente sem subir um IdP
 completo, os serviços validam JWT contra uma **chave de assinatura estática de
-dev** (configurada por variável de ambiente), e um utilitário/endpoint de dev
-emite um token válido com os *scopes* necessários (`entries:write`,
+dev** (configurada por variável de ambiente; **obrigatória fora de Development**),
+e um utilitário/endpoint de dev (`GET /dev/token`, **indisponível em produção —
+responde 404**) emite um token válido com os *scopes* necessários (`entries:write`,
 `balances:read`). Em produção, essa chave dá lugar à validação contra o IdP real
 (§8.1) — sem mudança no código de validação.
 
@@ -1595,7 +1602,7 @@ consumo. *Status: ✅ resolvido (ver T09).*
 ### Event Sourcing
 
 **6. Como um `CreditPostedEvent` v1 vira v2 (upcasting)?**
-O envelope tem `eventVersion` (§4.3). Ao mudar o schema, um **upcaster** converte
+O envelope tem `event.version` (§4.3). Ao mudar o schema, um **upcaster** converte
 o evento antigo para a forma nova no momento do replay/consumo — versões nunca
 quebram o consumidor. *Status: 🟢 estratégia definida; impl. quando surgir a v2.*
 
@@ -1641,6 +1648,8 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.9 | 2026-06-27 | Estrutura da Api: *composition root* (`HostingExtensions`) enxuga o `Program.cs`; health checks em extensão dedicada com endpoint `/health` (SQL + Kafka, **visibilidade sem gatear**) além de `/health/live` e `/health/ready` (§7.1) — o Kafka tem um `IHealthCheck` próprio e segue fora do readiness. |
+| 1.0.8 | 2026-06-27 | Revisão pós-T08: dedup de idempotência movida para um *behavior* (`IdempotentCommandHandler`) em volta do `Send` (§5.10) — controller fino; `OccurredAt` normalizado para **UTC** na borda antes do event store; `/dev/token` responde **404** em produção e a chave JWT é **obrigatória fora de Development** (§8.1/§9.1); readiness do Entries cobre **só SQL** nesta fatia (§7.1). |
 | 1.0.7 | 2026-06-27 | T07 (relay): a porta `IEventPublisher` (publicação no Kafka pelo relay) vive na **Application** — ajuste do DIP em §5.10. |
 | 1.0.6 | 2026-06-26 | Porta de persistência renomeada para `IRepository` (`Add`/`GetAsync`), **domain-neutral** — o caso de uso só "persiste/carrega o agregado"; event store + outbox + publish ficam por baixo dos panos (genéricos). O handler não conhece event store nem Kafka. |
 | 1.0.5 | 2026-06-26 | Refinos de Event Sourcing: `OccurredAt` na base `DomainEvent`; serializer de eventos por **auto-descoberta** (reflection no startup); reidratação genérica em `AggregateRoot.FromHistory<T>`; guardrail "sem reflection" **escopado ao hot path** (reflection ok em DI/serialização); `Domain/Repositories/` → `Domain/Persistence/`. |

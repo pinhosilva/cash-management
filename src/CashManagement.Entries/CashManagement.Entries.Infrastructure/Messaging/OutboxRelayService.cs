@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace CashManagement.Entries.Infrastructure.Messaging;
 
@@ -7,14 +8,18 @@ namespace CashManagement.Entries.Infrastructure.Messaging;
 /// Relay da outbox como <see cref="BackgroundService"/>: faz polling periódico e
 /// delega ao <see cref="OutboxProcessor"/> (resolvido num escopo próprio, pois o
 /// DbContext é scoped). Garante "gravou ⇒ publicado" sem depender do fluxo da request.
+/// O intervalo de polling vem de <see cref="OutboxOptions"/> (config).
 /// </summary>
 public sealed class OutboxRelayService : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
-
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly TimeSpan _pollInterval;
 
-    public OutboxRelayService(IServiceScopeFactory scopeFactory) => _scopeFactory = scopeFactory;
+    public OutboxRelayService(IServiceScopeFactory scopeFactory, IOptions<OutboxOptions> options)
+    {
+        _scopeFactory = scopeFactory;
+        _pollInterval = TimeSpan.FromSeconds(options.Value.PollIntervalSeconds);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -32,10 +37,11 @@ public sealed class OutboxRelayService : BackgroundService
             }
             catch
             {
-                // ciclo seguinte tenta de novo; observabilidade (log) entra na T08.
+                // ciclo seguinte tenta de novo (at-least-once); o log do relay entra
+                // na fatia futura de observabilidade (§8.2), com ILogger + component.
             }
 
-            await Task.Delay(PollInterval, stoppingToken);
+            await Task.Delay(_pollInterval, stoppingToken);
         }
     }
 }

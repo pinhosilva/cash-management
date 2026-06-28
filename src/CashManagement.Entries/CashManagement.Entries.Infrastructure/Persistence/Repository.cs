@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CashManagement.Entries.Application.Interfaces;
 using CashManagement.Entries.Domain.Persistence;
 using CashManagement.Entries.Domain.SeedWork;
 using CashManagement.Entries.Infrastructure.Messaging;
@@ -21,11 +22,13 @@ public sealed class Repository : IRepository
 
     private readonly EntriesDbContext _db;
     private readonly EventSerializer _serializer;
+    private readonly ICorrelationContext? _correlation;
 
-    public Repository(EntriesDbContext db, EventSerializer serializer)
+    public Repository(EntriesDbContext db, EventSerializer serializer, ICorrelationContext? correlation = null)
     {
         _db = db;
         _serializer = serializer;
+        _correlation = correlation;
     }
 
     public void Add(AggregateRoot aggregate)
@@ -58,8 +61,8 @@ public sealed class Repository : IRepository
             var envelope = new OutboxEnvelope(
                 new EventInfo(eventId, type, EventSchemaVersion),
                 new AggregateInfo(aggregate.Id, version),
-                CorrelationId: null, // preenchido na borda (T08)
-                InitiatedBy: null,   // preenchido na borda (T08)
+                _correlation?.CorrelationId,
+                _correlation?.InitiatedBy,
                 @event.OccurredAt,
                 @event);
 

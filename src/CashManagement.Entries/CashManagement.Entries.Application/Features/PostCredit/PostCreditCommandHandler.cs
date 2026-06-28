@@ -26,7 +26,7 @@ public sealed class PostCreditCommandHandler : ICommandHandler<PostCreditCommand
         _validator = validator;
     }
 
-    public Task<Result<Guid>> HandleAsync(PostCreditCommand command)
+    public Task<Result<Guid>> HandleAsync(PostCreditCommand command, CancellationToken cancellationToken = default)
     {
         var validation = _validator.Validate(command);
         if (validation.IsFailure)
