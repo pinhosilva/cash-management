@@ -20,8 +20,10 @@ public sealed class EntriesApiFixture : IAsyncLifetime
 {
     private const string SigningKey = "integration-test-signing-key-32-bytes-min!!";
 
+    // CU fixa (não `2022-latest`): o build mais novo crasha no runner do GitHub
+    // ("CoInitializeSecurity failure"). Pinar = reproduzível e estável.
     private readonly MsSqlContainer _sql =
-        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
+        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-CU12-ubuntu-22.04").Build();
     private WebApplicationFactory<Program> _factory = default!;
 
     public HttpClient Client { get; private set; } = default!;
