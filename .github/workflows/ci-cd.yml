@@ -40,7 +40,7 @@ jobs:
       - name: Versão calculada
         run: echo "SemVer = ${{ steps.gitversion.outputs.fullSemVer }}"
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.x'
 
