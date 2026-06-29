@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.13 (ver Histórico de Revisões no fim do documento)                                                                                             |
+| **Versão**              | 1.0.14 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1380,10 +1380,12 @@ responde 404**) emite um token válido com os *scopes* necessários (`entries:wr
 ### 9.2 Esteira de CI/CD (GitHub Actions)
 
 > Entregue na **T12** em [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml)
-> + [`GitVersion.yml`](../GitVersion.yml). O sketch abaixo usa `--filter Category=…`
-> de forma ilustrativa; o workflow real separa os gates **por projeto de teste**
-> (`*.UnitTests` × `*.IntegrationTests`), evitando ter de anotar `[Trait]` em cada
-> teste. *Branch protection* e *secrets* se configuram na UI do GitHub (ver README).
+> + [`GitVersion.yml`](../GitVersion.yml). O sketch abaixo (um job `test`) é
+> ilustrativo; o workflow real usa **jobs isolados por projeto** — `entries` e
+> `balance` (cada um com unit + integração), `security` (cross-cutting) em paralelo,
+> `e2e` (`needs: entries, balance`) e `deploy` (`needs: e2e, security`). Isso isola
+> a falha por serviço e dá paralelismo. *Branch protection* e *secrets* se configuram
+> na UI do GitHub (ver README).
 
 **Princípio — o teste é o portão:** nada sobe sem os testes passarem. O job de
 `deploy` depende do job de `test` (`needs: test`); qualquer gate vermelho
@@ -1667,6 +1669,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.14 | 2026-06-29 | CI: esteira reestruturada em **jobs isolados por projeto** — `entries` e `balance` (unit + integração) em paralelo, `security` cross-cutting, `e2e` (`needs` os dois serviços) e `deploy` (`needs` e2e + security). Isola a falha por serviço. Também: GitVersion 6 / gittools v4 / CodeQL v4, Trivy report-only, grouping do Dependabot. |
 | 1.0.13 | 2026-06-28 | CI: scans de **segurança** na mesma pipeline (job `test`) — CodeQL (SAST C#), gitleaks (secret scan, com allowlist dos segredos de dev), `dotnet list --vulnerable` (além do `NuGetAudit` do build) e Trivy (imagens). Permissões mínimas por job + `dependabot.yml` (NuGet/Actions/Docker). |
 | 1.0.12 | 2026-06-28 | T12 (CI/CD): esteira `ci-cd.yml` (3 gates — unit/integração/e2e Newman) + `deploy` por branch (GitFlow) + `GitVersion.yml` (SemVer dos commits semânticos). Gates separados **por projeto de teste** (não por `[Trait]`); *branch protection*/secrets documentados no README (UI do GitHub). |
 | 1.0.11 | 2026-06-28 | T11 (orquestração): `docker-compose` sobe SQL + Mongo + **Kafka em KRaft** (sem Zookeeper) + os 2 serviços, validado pelo smoke (Newman, 2 tokens). Profile `observability` entrega o **pipeline de logs** (OTel Collector → OpenSearch); traces/métricas + Data Prepper ficam para a observabilidade completa (§8.2/§9.1). |

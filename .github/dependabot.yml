@@ -1,6 +1,10 @@
 # Dependabot — atualizações automáticas de dependências (segurança + manutenção).
 # Abre PRs quando sai correção (ex.: o CVE transitivo que tivemos de suprimir na
 # Infra do Balance é atualizado aqui assim que houver versão corrigida).
+#
+# Para não chover PR: minor+patch são AGRUPADOS num PR por ecossistema; os
+# **majors ficam isolados** (geralmente exigem trabalho manual — como a migração
+# gittools v3→v4 / GitVersion 6 exigiu).
 version: 2
 updates:
   # Pacotes NuGet dos dois serviços (Dependabot descobre os projetos sob a raiz).
@@ -11,6 +15,9 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: chore(deps)
+    groups:
+      dotnet:
+        update-types: [minor, patch]
 
   # As próprias actions usadas na esteira.
   - package-ecosystem: github-actions
@@ -19,17 +26,19 @@ updates:
       interval: weekly
     commit-message:
       prefix: chore(ci)
+    groups:
+      actions:
+        update-types: [minor, patch]
 
-  # Imagens base dos Dockerfiles dos dois serviços.
+  # Imagens base dos Dockerfiles dos dois serviços (uma entrada, vários diretórios).
   - package-ecosystem: docker
-    directory: /src/CashManagement.Entries/CashManagement.Entries.Api
+    directories:
+      - /src/CashManagement.Entries/CashManagement.Entries.Api
+      - /src/CashManagement.Balance/CashManagement.Balance.Api
     schedule:
       interval: weekly
     commit-message:
       prefix: chore(docker)
-  - package-ecosystem: docker
-    directory: /src/CashManagement.Balance/CashManagement.Balance.Api
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: chore(docker)
+    groups:
+      docker:
+        update-types: [minor, patch]
