@@ -142,7 +142,9 @@ jobs:
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker compose build entries-api balance-api
           for svc in entries-api balance-api; do
-            local_img=$(docker compose images -q "$svc")
+            # nome determinístico da imagem que o compose builda (projeto 'cash-management',
+            # fixado por `name:` no compose). `docker compose images -q` exigiria containers.
+            local_img="cash-management-${svc}"
             remote="ghcr.io/${owner}/cash-management-${svc}"
             docker tag "$local_img" "${remote}:${VER}"
             docker tag "$local_img" "${remote}:${SHA}"
