@@ -140,6 +140,7 @@ jobs:
           SHA: ${{ steps.gitversion.outputs.shortSha }}
         run: |
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          VER="${VER//+/-}"   # tag Docker não aceita o '+' do build metadata SemVer (ex.: 0.2.0-beta.1+124)
           docker compose build entries-api balance-api
           for svc in entries-api balance-api; do
             # nome determinístico da imagem que o compose builda (projeto 'cash-management',
@@ -167,6 +168,7 @@ jobs:
           VER: ${{ steps.gitversion.outputs.fullSemVer }}
         run: |
           export OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          export VER="${VER//+/-}"   # casa com a tag publicada no GHCR (sem '+')
           docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull entries-api balance-api
           docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d --wait
           npx --yes newman run docs/postman/CashManagement.postman_collection.json \
@@ -192,12 +194,14 @@ jobs:
       - name: Release por canal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ steps.gitversion.outputs.fullSemVer }}
+          MMP: ${{ steps.gitversion.outputs.majorMinorPatch }}
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            tag="v${{ steps.gitversion.outputs.majorMinorPatch }}"   # estável: v0.2.0
+            tag="v${MMP}"             # estável: v0.2.0
             flags=""
           else
-            tag="v${{ steps.gitversion.outputs.fullSemVer }}"        # alpha/rc: v0.2.0-alpha.N / -rc.N
+            tag="v${VER//+/-}"        # alpha/rc: v0.2.0-alpha.N-NNN (sem '+', consistente com a tag da imagem)
             flags="--prerelease"
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
