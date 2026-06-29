@@ -24,7 +24,7 @@ jobs:
       security-events: write # CodeQL publica os resultados no code scanning
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # GitVersion precisa do histórico completo
 
@@ -112,7 +112,7 @@ jobs:
     permissions:
       contents: write # criar a tag + release notes na main
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
