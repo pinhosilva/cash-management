@@ -282,6 +282,34 @@ na seção de Testes de [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
+## CI/CD (GitHub Actions)
+
+A esteira ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) é o
+**portão**: o job `deploy` só roda com o `test` verde (desenho completo na
+[§9.2 do ARCHITECTURE](docs/ARCHITECTURE.md#92-esteira-de-cicd-github-actions)).
+
+- **Job `test`** — 3 gates: **unit** (`dotnet test` dos projetos `*.UnitTests`),
+  **integração** (`*.IntegrationTests` com Testcontainers) e **e2e** (Newman
+  rodando **só a pasta `Smoke`** contra a stack do `docker compose`).
+- **Job `deploy`** (`needs: test`) — por ambiente conforme a branch (GitFlow):
+  `develop → dev`, `release/* → staging`, `main → produção + tag`. O passo de
+  deploy real é **placeholder** até haver ambiente provisionado.
+- **Versionamento** — [`GitVersion.yml`](GitVersion.yml) calcula o SemVer dos
+  **commits semânticos** (`feat` → minor, `fix` → patch, `!`/`BREAKING` → major);
+  a `main` cria a tag `vX.Y.Z` + release notes.
+
+### Configuração no GitHub (uma vez, na UI — não dá para versionar)
+
+1. **Branch protection** em `main` **e** `develop` (*Settings → Branches → Add rule*):
+   - *Require a pull request before merging* (com 1 review).
+   - *Require status checks to pass* → selecione o check **`test`**.
+   - (Recomendado) *Require branches to be up to date* e *Do not allow bypassing*.
+2. **Secrets/permissions** — o gate usa só o `GITHUB_TOKEN` automático (a esteira
+   já declara `permissions: contents: write` para a tag/release). Deploy real para
+   nuvem exigirá *secrets* próprios (registry, kubeconfig) quando o ambiente existir.
+
+---
+
 ## Documentação
 
 

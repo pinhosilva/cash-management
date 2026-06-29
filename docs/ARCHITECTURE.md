@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.11 (ver Histórico de Revisões no fim do documento)                                                                                             |
+| **Versão**              | 1.0.12 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1379,9 +1379,11 @@ responde 404**) emite um token válido com os *scopes* necessários (`entries:wr
 
 ### 9.2 Esteira de CI/CD (GitHub Actions)
 
-> O `.yml` real é entregue na tarefa **T12** ([TASKS.md](./TASKS.md)) e fica
-> verde quando a Fatia 1 estiver implementada — por isso ainda não há workflow no
-> repositório.
+> Entregue na **T12** em [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml)
+> + [`GitVersion.yml`](../GitVersion.yml). O sketch abaixo usa `--filter Category=…`
+> de forma ilustrativa; o workflow real separa os gates **por projeto de teste**
+> (`*.UnitTests` × `*.IntegrationTests`), evitando ter de anotar `[Trait]` em cada
+> teste. *Branch protection* e *secrets* se configuram na UI do GitHub (ver README).
 
 **Princípio — o teste é o portão:** nada sobe sem os testes passarem. O job de
 `deploy` depende do job de `test` (`needs: test`); qualquer gate vermelho
@@ -1658,6 +1660,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.12 | 2026-06-28 | T12 (CI/CD): esteira `ci-cd.yml` (3 gates — unit/integração/e2e Newman) + `deploy` por branch (GitFlow) + `GitVersion.yml` (SemVer dos commits semânticos). Gates separados **por projeto de teste** (não por `[Trait]`); *branch protection*/secrets documentados no README (UI do GitHub). |
 | 1.0.11 | 2026-06-28 | T11 (orquestração): `docker-compose` sobe SQL + Mongo + **Kafka em KRaft** (sem Zookeeper) + os 2 serviços, validado pelo smoke (Newman, 2 tokens). Profile `observability` entrega o **pipeline de logs** (OTel Collector → OpenSearch); traces/métricas + Data Prepper ficam para a observabilidade completa (§8.2/§9.1). |
 | 1.0.10 | 2026-06-28 | T10 (API do Balance): readiness de **ambos** os serviços passa a cobrir **só o banco** (Entries: SQL; Balance: Mongo) — o Kafka não gateia nenhum dos dois e aparece como visibilidade em `/health` (§7.1), coerência com a decisão do Entries (v1.0.9). |
 | 1.0.9 | 2026-06-27 | Estrutura da Api: *composition root* (`HostingExtensions`) enxuga o `Program.cs`; health checks em extensão dedicada com endpoint `/health` (SQL + Kafka, **visibilidade sem gatear**) além de `/health/live` e `/health/ready` (§7.1) — o Kafka tem um `IHealthCheck` próprio e segue fora do readiness. |
