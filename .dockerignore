@@ -1,0 +1,33 @@
+# Exclui artefatos de build e ruído do contexto enviado ao Docker daemon.
+# O contexto de build dos serviços é a raiz do repositório (ver Dockerfiles).
+
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+
+# Git e CI
+.git/
+.github/
+.gitignore
+
+# Assistentes de IA / config local (fora do projeto)
+.claude/
+CLAUDE.md
+
+# Docs e ferramentas que não entram na imagem
+docs/
+README.md
+LICENSE
+docker-compose.yml
+**/Dockerfile
+**/.dockerignore
+
+# Ambiente / segredos
+**/.env
+**/*.env.local
+
+# OS
+**/.DS_Store
+**/Thumbs.db

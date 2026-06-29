@@ -62,7 +62,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - `On<T>` não registrado para um evento → comportamento definido (lançar ou ignorar — **decida e documente**; recomendo lançar em DEBUG).
 
 **Implementar:**
-- `DomainEvent` (abstrata): carrega `AggregateId` (Guid).
+- `DomainEvent` (abstrata): carrega `AggregateId` (Guid) e `OccurredAt` (UTC).
 - `AggregateRoot` (abstrata): `Guid Id` (setter privado), `int Version`, `IReadOnlyCollection<IDomainEvent> UncommittedEvents`, `Emit(evento)` **`protected`**, `LoadFromHistory(...)`, `ClearUncommittedEvents()`, e o registro `On<TEvent>(Action<TEvent>)` chamado em `RegisterEvents()` (abstrato).
 - `Result` / `Result<T>` + `Error` (`code`, `message`, `ErrorType`): resultado de operação **sem exceção** — base do contrato de resposta (§4.4) e do Result pattern (§5.10).
 
@@ -72,7 +72,7 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - **Ordenação por `Version`** (incrementada a cada evento), **nunca** por relógio/`Ticks`/`Task.Delay` (sem qualquer *delay* no apply).
 - Timestamps em **UTC** (`DateTime.UtcNow` ou um `IClock` injetável), **nunca** `DateTime.Now`.
 - Roteamento de eventos por **composição** (dicionário privado encapsulado), **não** herdar de `Dictionary`.
-- **Sem reflection** no caminho de execução e **sem** sync-over-async (`.GetAwaiter().GetResult()`) — inclusive nas fixtures.
+- **Sem reflection no caminho de execução (hot path)** — ex.: igualdade de Value Object a cada comparação (use `record`) e roteamento de evento (use `On<T>()`). Reflection **é ok** onde é normal e barata, fora do caminho quente: container de DI, serialização, descoberta de tipos no startup. E **sem** sync-over-async (`.GetAwaiter().GetResult()`) — inclusive nas fixtures.
 
 **Critério de aceite:** testes acima verdes. `Domain` sem nenhuma dependência de pacote externo.
 
@@ -121,12 +121,12 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 - *When* valor **não-positivo** → o handler retorna `Result` de **falha** (`ErrorType.Validation`), **sem** publicar evento e **sem** lançar exceção.
 
 **Implementar (em `Entries.Application`):**
-- Abstrações: `ICommand<TResult>`, `ICommandHandler<TCommand,TResult>` (`Task<Result<TResult>> HandleAsync`), `ICommandDispatcher` (`Task<Result<TResult>> Send<TResult>(ICommand<TResult>)`). Dispatcher próprio, resolve handler via DI.
+- Abstrações: `ICommand<TResult>`, `ICommandHandler<TCommand,TResult>` (`Task<Result<TResult>> HandleAsync`), `ICommandDispatcher` (`Task<Result<TResult>> Send<TCommand, TResult>(TCommand)` — genérico sobre o comando, **reflection-free**). Dispatcher próprio, resolve handler via DI.
 - `IIdGenerator` (interface) + impl simples (`Guid.NewGuid()`) na Infra/Api.
 - `PostCreditCommand(decimal Amount, DateTime OccurredAt) : ICommand<Guid>`.
 - **Validator** do comando (valor positivo, data válida) → devolve `Result` de falha (`ErrorType.Validation`) antes de tocar o domínio.
-- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `await _repository.SaveAsync(entry)`, retorna `Result.Ok(id)`. (ver sketch no README do Entries)
-- Interfaces consumidas: `IEntryRepository` (em `Domain/Repositories/`).
+- `PostCreditCommandHandler` → gera id, `Entry.PostCredit(...)`, `_repository.Add(entry)` (sem commit — o commit é do `IUnitOfWork`, na fronteira do caso de uso), retorna `Result.Ok(id)`. (ver sketch no README do Entries)
+- Portas consumidas: `IRepository` (em `Domain/Persistence/`).
 
 **Critério de aceite:** testes verdes; o handler não conhece SQL/Kafka (só interfaces).
 
@@ -137,13 +137,14 @@ Legenda de detalhe: 🔬 **granular** (siga à risca) · 🎯 **objetivo-orienta
 **Objetivo:** persistência append-only dos eventos **+** outbox na **mesma transação** (Transactional Outbox — §5.9).
 
 **Teste primeiro** (`Entries.IntegrationTests` com **Testcontainers** SQL Server):
-- `SaveAsync(entry)` grava o evento na tabela de eventos **e** uma linha na `outbox`, **atomicamente** (se um falhar, nada persiste).
-- `GetByIdAsync(id)` reconstrói o `Entry` por replay dos eventos.
+- `Append(entry)` + `CommitAsync()` gravam o evento na tabela de eventos **e** uma linha na `outbox`, **atomicamente** (se um falhar, nada persiste).
+- `GetAsync<Entry>(id)` reconstrói o `Entry` por replay dos eventos.
 - Concorrência otimista: salvar com versão esperada divergente → conflito (mapear para 409 depois).
 
-**Implementar (em `Entries.Infrastructure/Persistence` e `/Repositories`):**
+**Implementar (em `Entries.Infrastructure/Persistence`):**
 - EF Core `DbContext` com tabelas `Events` (stream append-only) e `Outbox`.
-- `EntryRepository : IEntryRepository`: `SaveAsync` abre **uma transação (Unit of Work)**, grava eventos não-commitados + linha de outbox (envelope da §4.3) + checagem de *expected version*, commit.
+- `Repository : IRepository` (`Add`) **encena** (sem commit) os eventos não-commitados + a linha de outbox (envelope da §4.3), de forma **genérica** (qualquer agregado), num só lugar.
+- `UnitOfWork : IUnitOfWork`: `CommitAsync` faz o **commit atômico** (um `SaveChanges`); a *expected version* é garantida pelo índice único `(AggregateId, Version)`. Acionado 1× na **fronteira do caso de uso** (request na API / orquestrador num pacotão), **fora** do event store e do dispatcher.
 
 **Critério de aceite:** testes de integração verdes; nenhuma escrita parcial possível.
 
@@ -243,4 +244,9 @@ A Fatia 1 está concluída quando:
 - [ ] Nada fora de escopo foi implementado (sem débito/estorno/multi-tenant/etc.).
 - [ ] O que divergiu do `ARCHITECTURE.md` (se algo) foi **levantado com o revisor**, não decidido sozinho.
 
-> **Próximas fatias** (depois desta): débito → estorno → idempotência de escrita completa → segurança (scopes/ACLs Kafka) → observabilidade (OTel/OpenSearch) → testes de carga (k6). Cada uma ganha seu próprio bloco de tarefas quando chegar a vez.
+> **Próximas fatias** (em ordem). Cada uma ganha seu próprio bloco de tarefas quando chegar a vez:
+>
+> - ✅ **Débito** — implementado (espelha o crédito; `POST /entries` roteia por `type`, default `Credit`; a projeção do Balance **subtrai**, `balance = totalCredits − totalDebits`, mesma dedup atômica por `event.id`).
+> - **Estorno (compensação)** — `POST /entries/{id}/reversal`. Em Event Sourcing **não se apaga nem edita** o lançamento original: registra-se um **evento compensatório** (`EntryReversedEvent`) que reverte o efeito na projeção (desfaz o crédito/débito do dia). Idempotente por `event.id`, como o resto. _(Hoje o request "Estornar lançamento" no Postman está marcado como fatia futura e retorna 404.)_
+> - **Idempotência de escrita — endurecimento.** O caso base **já funciona** (mesma `Idempotency-Key` ⇒ mesmo `id`; dedup gravada na **mesma transação** do evento; janela de 24h). Falta para produção: **(a) fingerprint do payload** — mesma chave com corpo diferente deve dar `422`, não devolver o id antigo; **(b) corrida** — duas requisições simultâneas com a mesma chave: tratar a violação do índice único resolvendo para o id existente em vez de `500`; **(c) expiração/limpeza** — purgar chaves além da janela para a tabela não crescer sem limite; **(d) escopo por merchant/tenant**. A chave hoje também é **opcional** (sem o header não há dedup) — documentar ou torná-la obrigatória na escrita.
+> - Depois: **segurança** (scopes/ACLs no Kafka) → **observabilidade** (os 3 pilares OTel: métricas + traces, hoje só logs) → **testes de carga** (k6, validar o RNF de 50 req/s).

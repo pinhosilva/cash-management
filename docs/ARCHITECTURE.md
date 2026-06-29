@@ -4,6 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
+| **Versão**              | 1.0.19 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -96,6 +97,14 @@ refletindo a natureza de cada um:
   já validados pelo Entries em um read model. Manter uma camada de Domain
   vazia apenas para espelhar o outro serviço seria estrutura sem propósito.
 
+Dentro da camada de **Application**, a organização é por **vertical slice**: cada
+caso de uso ganha uma pasta em `Features/` reunindo command + handler + validator
+(+ DTOs) — *o que muda junto fica junto* (alta coesão). Building blocks de CQRS
+ficam em `Abstractions/` e portas em `Interfaces/`. O **Domain**, por sua vez,
+segue organizado por tipo de DDD (`Aggregates/`, `Events/`, `ValueObjects/`,
+`Persistence/`, `SeedWork/`) — vertical slice é conceito da camada de aplicação,
+não do modelo de domínio.
+
 Detalhes de cada estrutura estão documentados no `README.md` de cada serviço
 (`/src/CashManagement.Entries/README.md` e
 `/src/CashManagement.Balance/README.md`).
@@ -126,8 +135,8 @@ tabela, antes de entrar no código.
 
 #### Commands — imperativo (uma intenção, pode ser rejeitada)
 
-Commands representam uma intenção de ação, vivem em
-`CashManagement.Entries.Application/Commands/`, e são nomeados no
+Commands representam uma intenção de ação, vivem na pasta do caso de uso
+(vertical slice) em `CashManagement.Entries.Application/Features/<UseCase>/`, e são nomeados no
 **imperativo**, pois ainda não aconteceram e podem ser rejeitados pelo
 Aggregate (ex: dados inválidos, ou estorno de um lançamento já estornado):
 
@@ -174,7 +183,7 @@ passado**:
 | ---------------------- | -------------------------------------- | -------------------- |
 | Aggregate Root         | `[Conceito]` (substantivo, sem sufixo) | `Entry`              |
 | Value Object           | `[Conceito]` (substantivo, sem sufixo) | `Money`, `EntryType` |
-| Repository (interface) | `I[Aggregate]Repository`               | `IEntryRepository`   |
+| Persistência (portas)  | `IRepository`, `IUnitOfWork`            | repositório + UoW    |
 
 #### Tópicos Kafka
 
@@ -710,9 +719,9 @@ auditável por quem for mantê-la.
 | Abstração (própria)              | Papel no Entries                                                                                        |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `AggregateRoot`                     | Base do`Entry`: roteamento de eventos, `Apply`/replay, `Emit`, lista de eventos não-commitados         |
-| `DomainEvent`                       | Base dos eventos (`CreditPostedEvent`, etc.), carregando o `aggregateId`                                |
+| `DomainEvent`                       | Base dos eventos (`CreditPostedEvent`, etc.), carregando `aggregateId` e `occurredAt` (UTC)             |
 | `ICommand` / `ICommandHandler<T>`   | Contrato e despacho dos commands                                                                        |
-| `IEntryRepository` + event store    | Persistência e replay do agregado (implementação no Infrastructure, sobre o SQL Server)              |
+| `IRepository` (+ `IUnitOfWork`)     | `Add` (encena eventos + outbox) e `GetAsync` (replay) do agregado; commit atômico no UoW — impl. no Infrastructure, sobre o SQL Server |
 | `ValueObject`                       | Value Objects (ex.:`Money`, `EntryType`) — imutáveis, igualdade por valor                            |
 | `Result<T>` / `Error`               | Resultado de operação (sucesso/falha) sem exceção; `Error` carrega `code` + `message` + `ErrorType` (→ HTTP) |
 | Fixtures de teste                   | Given/When/Then sobre o agregado e os handlers (ver seção 6)                                          |
@@ -756,9 +765,11 @@ O **Transactional Outbox** elimina esse risco:
 > **Outbox × Unit of Work — não são a mesma coisa.** O **Unit of Work** é o
 > mecanismo de transação atômica ("tudo ou nada"); o **Outbox** é o *uso* dessa
 > atomicidade para publicar de forma confiável. O UoW é o que torna o passo 1
-> atômico — sem ele, não há Outbox correto. Na prática, o `SaveAsync` do
-> `IEntryRepository` abre uma Unit of Work, grava os eventos do agregado **e** a
-> linha de `outbox` na mesma transação, e dá commit; o relay cuida do resto.
+> atômico — sem ele, não há Outbox correto. Na prática, o `IRepository.Add`
+> **encena** os eventos do agregado **e** a linha de `outbox`; o
+> `IUnitOfWork.CommitAsync` grava tudo numa transação (commit acionado uma vez na
+> fronteira do caso de uso — a request, ou um orquestrador num "pacotão" — fora do
+> dispatcher, que só despacha) — e o relay cuida do resto.
 
 Isso garante **"gravou ⇒ será publicado"**, e casa com a outra ponta: o
 consumidor do Balance já deduplica por `event.id` (§4.3), então o reenvio do
@@ -784,8 +795,9 @@ código no [README do Entries](../src/CashManagement.Entries/README.md).
 | Padrão | Onde | Por quê |
 |---|---|---|
 | **Command** (GoF) | `PostCreditCommand` + handler | Encapsula a intenção; pode ser validada/rejeitada antes de virar fato |
-| **Mediator** (GoF) | `CommandDispatcher` próprio (enxuto) | Desacopla emissor do handler, **captura o comando e devolve resultado** (`Send<TResult>`); ponto único para *cross-cutting* (log, validação, idempotência) |
-| **Repository** (DDD) | `IEntryRepository` | Abstrai o event store; o domínio não sabe que é SQL |
+| **Mediator** (GoF) | `CommandDispatcher` próprio (enxuto) | Desacopla emissor do handler, **captura o comando e devolve resultado** (`Send<TCommand, TResult>`); ponto único para *cross-cutting* (log, validação, idempotência) |
+| **Repository** (DDD) | `IRepository` | Abstrai a persistência do agregado (`Add`/`GetAsync`); event store + outbox ficam por baixo, o caso de uso não sabe que é SQL/ES |
+| **Unit of Work** (PoEAA) | `IUnitOfWork` | Commit atômico (eventos + outbox); acionado 1× na fronteira do caso de uso (request/orquestrador), fora do dispatcher (SRP) |
 | **Factory** (GoF) | `Entry.PostCredit(...)` e a reconstrução por replay | Criação consistente já emitindo o evento |
 | **Domain Event** (DDD) | os `*Event` | Base do Event Sourcing e da integração via Kafka |
 | **Value Object** (DDD) | `Money`, `EntryType` | Igualdade por valor; evita *primitive obsession* |
@@ -804,8 +816,9 @@ evitando a licença comercial das versões novas do MediatR).
   persiste, a projeção projeta — quatro responsabilidades, quatro lugares.
 - **OCP:** um novo tipo de evento entra com um novo `On<>` e seu handler, sem
   tocar na mecânica de replay.
-- **DIP:** o Domain define `IEntryRepository`/`IEventPublisher`; a Infrastructure
-  implementa — exatamente a regra de dependência da Clean Architecture (§1.2).
+- **DIP:** o Domain define `IRepository`/`IUnitOfWork` e a Application a porta
+  `IEventPublisher` (usada pelo relay); a Infrastructure implementa — exatamente
+  a regra de dependência da Clean Architecture (§1.2).
 
 **Tratamento de falhas — `Result`, sem exceção:** falhas **esperadas** (regra de
 negócio, validação) retornam um `Result` com `Error` (`code`, `message`,
@@ -821,7 +834,7 @@ fluxo.
 **Identidade e retorno do comando:** o `aggregateId` é um `Guid` **gerado na
 camada de aplicação** (no handler), nunca pelo banco — ele é o *stream id* e a
 *partition key*, então precisa existir **antes** de persistir. O
-`CommandDispatcher` **devolve esse id** num `Result<Guid>` (`Send<TResult>`): uma criação retorna o
+`CommandDispatcher` **devolve esse id** num `Result<Guid>` (`Send<TCommand, TResult>` — **genérico sobre o tipo concreto do comando**, resolvido por DI **sem reflection**): uma criação retorna o
 **id** (não o agregado — não se vaza o *write model*; quem quer o estado
 completo consulta o read side). Num *retry* com a mesma `Idempotency-Key`, o id
 devolvido é o **original** — a deduplicação é um *behavior* em volta do `Send`,
@@ -955,11 +968,20 @@ Projetada para **recuperar de falhas**, não para fingir que elas não ocorrem:
   que o orquestrador (Kubernetes / compose) usa para agir **automaticamente**:
   - **Liveness** (`/health/live`): se a instância travar, o orquestrador a
     **reinicia**.
-  - **Readiness** (`/health/ready`): verifica as dependências (Entries: SQL
-    Server + Kafka; Balance: MongoDB + Kafka). Enquanto não estiverem
-    acessíveis, a instância é **tirada do balanceador** (não recebe tráfego) sem
-    ser morta — evitando responder a uma requisição que iria falhar.
-  - Implementados com os **HealthChecks nativos do ASP.NET Core**.
+  - **Readiness** (`/health/ready`): verifica só as dependências que a API
+    **precisa** para servir a requisição síncrona — em ambos os serviços, **só o
+    banco** (Entries: **SQL Server**; Balance: **MongoDB**). O Kafka **não** gateia
+    nenhum dos dois: no Entries o Outbox desacopla a publicação do caminho da
+    request; no Balance, a consulta de saldo é servida direto da projeção Mongo,
+    enquanto o consumo do Kafka é um fluxo assíncrono à parte. Enquanto o banco não
+    estiver acessível, a instância é **tirada do balanceador** (não recebe tráfego)
+    sem ser morta — evitando responder a uma requisição que iria falhar.
+  - **Visão completa** (`/health`): reporta **todas** as dependências com o status
+    de cada uma (Entries: SQL + Kafka; Balance: Mongo + Kafka) para
+    dashboards/diagnóstico — **sem gatear** tráfego; é o lugar onde o status do
+    Kafka aparece sem comprometer o readiness.
+  - Implementados com os **HealthChecks nativos do ASP.NET Core** (o check de Kafka
+    é um `IHealthCheck` próprio que busca metadata do cluster com timeout).
 - **Recuperação automática do consumo:** o Kafka retém os eventos; ao voltar, o
   Balance **retoma do offset** onde parou (§4.2), e a idempotência (§4.3) torna
   o reprocessamento seguro.
@@ -1081,7 +1103,7 @@ o canal de eventos:
 #### Proteção contra abusos e ataques
 
 - **Validação de entrada:** comandos validados na camada de Application
-  (`Validators/`); entrada inválida vira um `Result` com `ErrorType.Validation`
+  (validator na *feature folder* do caso de uso); entrada inválida vira um `Result` com `ErrorType.Validation`
   → `400` (§4.4), **sem exceção** e sem chegar ao domínio.
 - **Rate limiting / *throttling*:** no *gateway*/API, protege contra abuso e
   ajuda a manter o envelope de 50 req/s (RNF-02).
@@ -1323,15 +1345,22 @@ flowchart LR
 
 A solução é containerizada via **Docker e docker-compose**, subindo em um
 único comando todas as dependências de infraestrutura (SQL Server, MongoDB,
-Kafka + Zookeeper) e os dois serviços .NET.
+Kafka em **modo KRaft** — sem Zookeeper) e os dois serviços .NET.
 
 ```bash
 docker-compose up --build
 ```
 
-O stack de **observabilidade** (OpenSearch + Dashboards + Data Prepper + OTel
-Collector, e opcionalmente Prometheus + Grafana) fica em um **profile opcional**
-do compose, para não pesar a subida básica — habilitado sob demanda:
+O stack de **observabilidade** (OpenSearch + Dashboards + OTel Collector) fica em
+um **profile opcional** do compose, para não pesar a subida básica — habilitado
+sob demanda:
+
+> **Nesta fatia** o profile entrega o **pipeline de logs**: o OTel Collector
+> coleta o stdout JSON (Serilog, com `correlationId`) dos dois serviços e indexa
+> no OpenSearch, pesquisável por requisição. A instrumentação de **traces/métricas**
+> nos serviços e o **Data Prepper** (Trace Analytics) entram com a fatia de
+> observabilidade completa (§8.2); até lá, o exporter do Collector escreve direto
+> no OpenSearch.
 
 ```bash
 docker-compose --profile observability up --build
@@ -1342,16 +1371,23 @@ docker-compose --profile observability up --build
 
 **Autenticação em desenvolvimento:** para testar localmente sem subir um IdP
 completo, os serviços validam JWT contra uma **chave de assinatura estática de
-dev** (configurada por variável de ambiente), e um utilitário/endpoint de dev
-emite um token válido com os *scopes* necessários (`entries:write`,
+dev** (configurada por variável de ambiente; **obrigatória fora de Development**),
+e um utilitário/endpoint de dev (`GET /dev/token`, **indisponível em produção —
+responde 404**) emite um token válido com os *scopes* necessários (`entries:write`,
 `balances:read`). Em produção, essa chave dá lugar à validação contra o IdP real
 (§8.1) — sem mudança no código de validação.
 
 ### 9.2 Esteira de CI/CD (GitHub Actions)
 
-> O `.yml` real é entregue na tarefa **T12** ([TASKS.md](./TASKS.md)) e fica
-> verde quando a Fatia 1 estiver implementada — por isso ainda não há workflow no
-> repositório.
+> Entregue na **T12** em [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml)
+> + [`GitVersion.yml`](../GitVersion.yml). O sketch abaixo (um job `test`) é
+> ilustrativo. O workflow real usa **jobs isolados por projeto** — `entries` e
+> `balance` (unit + integração), `security` (cross-cutting) em paralelo, `e2e`
+> (`needs: entries, balance`) — e o **`deploy`** (`needs: e2e, security`; só em push
+> nas branches de ambiente): build das imagens, deploy por ambiente (placeholder) e
+> **release por canal** (develop→alpha, release/*→rc, main→estável). CI e CD ficam no
+> **mesmo workflow** justamente para o `deploy` gatear no CI via `needs:` (que não
+> cruza arquivos). *Branch protection*/secrets na UI do GitHub (ver README).
 
 **Princípio — o teste é o portão:** nada sobe sem os testes passarem. O job de
 `deploy` depende do job de `test` (`needs: test`); qualquer gate vermelho
@@ -1362,6 +1398,13 @@ emite um token válido com os *scopes* necessários (`entries:write`,
 | 1 — Unit | testes de domínio/aplicação (sem infra) | `dotnet test` |
 | 2 — Integração | event store, outbox, Kafka e Mongo reais | `dotnet test` + Testcontainers |
 | 3 — E2E (API) | a pasta **Smoke** da collection (`--folder`) contra a stack de pé | **Newman** (CLI do Postman) |
+
+Na **mesma pipeline** (steps do job `test`, sem abrir workflows à parte) rodam
+também os scans de **segurança**: **CodeQL** (SAST C#, `build-mode: none`),
+**gitleaks** (secret scan com allowlist dos segredos de dev), `dotnet list
+--vulnerable` (sobre o `NuGetAudit` que já gateia no build) e **Trivy** nas imagens
+construídas. As permissões do workflow são **mínimas por job** (o `test` só eleva
+`security-events: write` para o CodeQL; o `deploy`, `contents: write` para a tag).
 
 O **Newman** roda a **mesma collection** que se importa no Postman —
 uma única fonte da verdade para os testes de API. Mas a esteira **não gateia na
@@ -1427,6 +1470,20 @@ Regras do fluxo: ao fechar, uma `release/*` faz **merge em `main`** (gerando a
 *tag* da versão) **e de volta em `develop`**; um `hotfix/*` faz o mesmo (main +
 develop), para a correção nunca se perder. `main` e `develop` são **protegidas**
 — merge apenas com a esteira verde e via PR revisado.
+
+**Convenção de nomes de branch:**
+
+| Tipo | Padrão | Exemplo | Vida |
+|---|---|---|---|
+| Permanente | `main`, `develop` | — | longa |
+| Feature | `feature/<tarefa>-<slug>` | `feature/T01-setup` | efêmera (sai de `develop`, PR de volta) |
+| Release | `release/X.Y.Z` | `release/0.1.0` | efêmera (versão-alvo no nome) |
+| Hotfix | `hotfix/X.Y.Z` | `hotfix/0.1.1` | efêmera (sai de `main`) |
+
+As branches de **feature** mapeiam 1:1 às tarefas do [`TASKS.md`](./TASKS.md)
+(ex.: `feature/T01-setup`, `feature/T02-seed-work`). **Release** e **hotfix**
+carregam a **versão-alvo** no nome — não existe uma branch `release` única e fixa;
+cada versão tem a sua, criada e descartada por ciclo.
 
 **Versionamento (SemVer via GitVersion):** a versão **não é digitada à mão** —
 sai dos **commits semânticos** + da branch:
@@ -1568,7 +1625,7 @@ consumo. *Status: ✅ resolvido (ver T09).*
 ### Event Sourcing
 
 **6. Como um `CreditPostedEvent` v1 vira v2 (upcasting)?**
-O envelope tem `eventVersion` (§4.3). Ao mudar o schema, um **upcaster** converte
+O envelope tem `event.version` (§4.3). Ao mudar o schema, um **upcaster** converte
 o evento antigo para a forma nova no momento do replay/consumo — versões nunca
 quebram o consumidor. *Status: 🟢 estratégia definida; impl. quando surgir a v2.*
 
@@ -1605,3 +1662,32 @@ publica quando o Kafka volta. Entries **não cai** — reforça o RNF-01.
 O **event store é a fonte da verdade**; read model e Kafka são **reconstruíveis
 por replay**. Logo o RPO crítico é o do event store; o RTO do Balance é o tempo de
 rebuild por replay. *Status: 🟡 estratégia esboçada; RPO/RTO numéricos = decisão de operação.*
+## Histórico de Revisões
+
+**Versionamento do documento (SemVer):** **PATCH** = correção/ajuste pontual ·
+**MINOR** = nova seção ou conteúdo relevante · **MAJOR** = reestruturação. Toda
+alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho) e
+**registra uma linha** na tabela abaixo.
+
+| Versão | Data | Descrição |
+|---|---|---|
+| 1.0.19 | 2026-06-29 | **Fatia de débito** implementada ponta a ponta: Entries (`EntryType.Debit`, `DebitPostedEvent`, `Entry.PostDebit`, `PostDebitCommand`; `POST /entries` roteia por `type`, default `Credit`) e Balance (projeção generaliza para crédito/débito — débito **subtrai**, `balance = totalCredits − totalDebits`, mesma dedup atômica por `event.id`). Idempotência de escrita virou **behavior** (`IdempotentCommandHandler`) em volta do `Send`, alinhando o código à §5.10 (saiu do controller). |
+| 1.0.18 | 2026-06-29 | CD: **deploy-test** — sobe a stack com as **imagens publicadas no GHCR** (`docker-compose.ghcr.yml`) e roda o Smoke contra elas, antes do deploy/release. Fecha o ciclo "testa o artefato publicado, não o build local" (build once, promote). |
+| 1.0.17 | 2026-06-29 | CD: o `deploy` passa a **publicar as imagens no GHCR** (`ghcr.io/<owner>/cash-management-{entries,balance}-api`), versionadas por SemVer + short sha (na main, também `latest`). Base do "build once, promote" — a mesma imagem é promovida pelos ambientes. (`packages: write`.) |
+| 1.0.16 | 2026-06-29 | CI/CD **reunificados num workflow** (`ci-cd.yml`): o split em `ci.yml`/`cd.yml` deixava o `deploy` rodar em paralelo ao CI no push (sem `needs` cruzando arquivos). Voltando a um arquivo, o `deploy` gateia em `needs: [e2e, security]` — só roda se o CI passar. Em PR aparece skipped. |
+| 1.0.15 | 2026-06-29 | CI/CD separados em **dois workflows**: `ci.yml` (validação — PR + push, jobs por projeto) e `cd.yml` (entrega — só push develop/main/release). O CD ganha **build das imagens** (sem publicar) e **release por canal** (develop→alpha, release/*→rc, main→estável). Portão CI→CD pela **branch protection** (`needs:` não cruza workflows). |
+| 1.0.14 | 2026-06-29 | CI: esteira reestruturada em **jobs isolados por projeto** — `entries` e `balance` (unit + integração) em paralelo, `security` cross-cutting, `e2e` (`needs` os dois serviços) e `deploy` (`needs` e2e + security). Isola a falha por serviço. Também: GitVersion 6 / gittools v4 / CodeQL v4, Trivy report-only, grouping do Dependabot. |
+| 1.0.13 | 2026-06-28 | CI: scans de **segurança** na mesma pipeline (job `test`) — CodeQL (SAST C#), gitleaks (secret scan, com allowlist dos segredos de dev), `dotnet list --vulnerable` (além do `NuGetAudit` do build) e Trivy (imagens). Permissões mínimas por job + `dependabot.yml` (NuGet/Actions/Docker). |
+| 1.0.12 | 2026-06-28 | T12 (CI/CD): esteira `ci-cd.yml` (3 gates — unit/integração/e2e Newman) + `deploy` por branch (GitFlow) + `GitVersion.yml` (SemVer dos commits semânticos). Gates separados **por projeto de teste** (não por `[Trait]`); *branch protection*/secrets documentados no README (UI do GitHub). |
+| 1.0.11 | 2026-06-28 | T11 (orquestração): `docker-compose` sobe SQL + Mongo + **Kafka em KRaft** (sem Zookeeper) + os 2 serviços, validado pelo smoke (Newman, 2 tokens). Profile `observability` entrega o **pipeline de logs** (OTel Collector → OpenSearch); traces/métricas + Data Prepper ficam para a observabilidade completa (§8.2/§9.1). |
+| 1.0.10 | 2026-06-28 | T10 (API do Balance): readiness de **ambos** os serviços passa a cobrir **só o banco** (Entries: SQL; Balance: Mongo) — o Kafka não gateia nenhum dos dois e aparece como visibilidade em `/health` (§7.1), coerência com a decisão do Entries (v1.0.9). |
+| 1.0.9 | 2026-06-27 | Estrutura da Api: *composition root* (`HostingExtensions`) enxuga o `Program.cs`; health checks em extensão dedicada com endpoint `/health` (SQL + Kafka, **visibilidade sem gatear**) além de `/health/live` e `/health/ready` (§7.1) — o Kafka tem um `IHealthCheck` próprio e segue fora do readiness. |
+| 1.0.8 | 2026-06-27 | Revisão pós-T08: dedup de idempotência movida para um *behavior* (`IdempotentCommandHandler`) em volta do `Send` (§5.10) — controller fino; `OccurredAt` normalizado para **UTC** na borda antes do event store; `/dev/token` responde **404** em produção e a chave JWT é **obrigatória fora de Development** (§8.1/§9.1); readiness do Entries cobre **só SQL** nesta fatia (§7.1). |
+| 1.0.7 | 2026-06-27 | T07 (relay): a porta `IEventPublisher` (publicação no Kafka pelo relay) vive na **Application** — ajuste do DIP em §5.10. |
+| 1.0.6 | 2026-06-26 | Porta de persistência renomeada para `IRepository` (`Add`/`GetAsync`), **domain-neutral** — o caso de uso só "persiste/carrega o agregado"; event store + outbox + publish ficam por baixo dos panos (genéricos). O handler não conhece event store nem Kafka. |
+| 1.0.5 | 2026-06-26 | Refinos de Event Sourcing: `OccurredAt` na base `DomainEvent`; serializer de eventos por **auto-descoberta** (reflection no startup); reidratação genérica em `AggregateRoot.FromHistory<T>`; guardrail "sem reflection" **escopado ao hot path** (reflection ok em DI/serialização); `Domain/Repositories/` → `Domain/Persistence/`. |
+| 1.0.4 | 2026-06-26 | Persistência separada em `IEventStore` (append + replay, outbox genérica num só lugar) e `IUnitOfWork` (commit atômico isolado, acionado na fronteira do caso de uso — request/orquestrador —, **não** no dispatcher, que mantém responsabilidade única de despachar), no lugar do `IEntryRepository.SaveAsync` "gordo" — §5.8/§5.9/§5.10. |
+| 1.0.3 | 2026-06-26 | Organização da camada de Application por **vertical slice** (`Features/<UseCase>/` reunindo command + handler + validator), em vez de pastas por tipo (`Commands/`, `Validators/`) — §1.2/§1.3. |
+| 1.0.2 | 2026-06-26 | Dispatcher `Send<TCommand, TResult>` reflection-free (resolve o handler por DI), em vez de `Send<TResult>(ICommand<TResult>)` — coerência com o cuidado "sem reflection" (§5.10/T05). |
+| 1.0.1 | 2026-06-26 | Convenção de nomes de branch (feature/release/hotfix) na §9.2. |
+| 1.0.0 | 2026-06-26 | Versão inicial consolidada do design doc. |

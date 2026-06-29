@@ -1,0 +1,213 @@
+# Orquestração local da Fatia 1 (crédito ponta-a-ponta) — T11.
+#
+#   Stack básica (infra + 2 serviços):   docker compose up --build
+#   Com Kafka UI (ver eventos):          docker compose --profile tools up --build
+#   Com observabilidade (OpenSearch):    docker compose --profile observability up --build
+#   Tudo:                                docker compose --profile tools --profile observability up --build
+#
+# Portas publicadas no host:
+#   entries-api          -> 8080   (POST /entries, GET /dev/token [escrita], /health/*, /swagger)
+#   balance-api          -> 8081   (GET /balances/{date}, GET /dev/token [leitura], /health/*, /swagger)
+#   sqlserver            -> 1433
+#   mongodb              -> 27017
+#   kafka                -> 9092 (host) / 29092 (interno entre containers)
+#   kafka-ui             -> 8088   (profile tools)
+#   opensearch           -> 9200   (profile observability)
+#   opensearch-dashboards-> 5601   (profile observability)
+#
+# Segredos: as chaves JWT e a senha do SQL abaixo são de DESENVOLVIMENTO (env var,
+# nunca de produção). Cada serviço valida o token assinado pela SUA própria chave
+# (audiences/chaves distintas) — não há chave compartilhada entre serviços.
+
+name: cash-management
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infraestrutura
+  # ---------------------------------------------------------------------------
+  sqlserver:
+    # CU fixa (não `2022-latest`): build reproduzível; o `latest` recente crasha no
+    # startup em alguns runners ("CoInitializeSecurity failure"). Mantém o tools18.
+    image: mcr.microsoft.com/mssql/server:2022-CU12-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Cash_Management_Dev1!"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    healthcheck:
+      # Robusto ao caminho do sqlcmd: tenta o tools18 (-C exige TLS) e cai pro tools
+      # legado se a imagem (ex.: CU mais antiga) não trouxer o mssql-tools18.
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 45s
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  kafka:
+    # Kafka em modo KRaft (sem Zookeeper) — single-node combinando broker +
+    # controller. Listener INTERNAL (kafka:29092) é o usado pelos containers;
+    # EXTERNAL (localhost:9092) é exposto ao host para ferramentas/depuração.
+    image: confluentinc/cp-kafka:7.7.1
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "cash-mgmt-kraft-cluster1"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # Kafka UI (profile `tools`): ver tópicos, mensagens e consumer lag pelo navegador.
+  #   docker compose --profile tools up   →   http://localhost:8088
+  # Conecta no listener INTERNO (kafka:29092), pois roda dentro da rede do compose.
+  kafka-ui:
+    # fork mantido do kafka-ui (o provectus/kafka-ui foi arquivado).
+    image: ghcr.io/kafbat/kafka-ui:latest
+    profiles: [tools]
+    ports:
+      - "8088:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "cash-management"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Serviços .NET
+  # ---------------------------------------------------------------------------
+  entries-api:
+    build:
+      context: .
+      dockerfile: src/CashManagement.Entries/CashManagement.Entries.Api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__Entries: "Server=sqlserver,1433;Database=CashManagementEntries;User Id=sa;Password=Cash_Management_Dev1!;TrustServerCertificate=True;Encrypt=False;"
+      Kafka__BootstrapServers: "kafka:29092"
+      Kafka__Topic: "cash.management.entries.events"
+      ENTRIES_JWT_SIGNING_KEY: "entries-dev-signing-key-please-change-32b+"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+  balance-api:
+    build:
+      context: .
+      dockerfile: src/CashManagement.Balance/CashManagement.Balance.Api/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://+:8081"
+      Mongo__ConnectionString: "mongodb://mongodb:27017"
+      Mongo__Database: "cash_management_balance"
+      Kafka__BootstrapServers: "kafka:29092"
+      Kafka__Topic: "cash.management.entries.events"
+      BALANCE_JWT_SIGNING_KEY: "balance-dev-signing-key-please-change-32b+"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+  # ---------------------------------------------------------------------------
+  # Observabilidade (profile opcional) — OpenSearch + Dashboards + OTel Collector
+  # O Collector tem o receiver filelog tailando os arquivos de log dos containers
+  # (stdout JSON do Serilog) e exporta para o OpenSearch, sem instrumentar o código
+  # dos serviços (§8.2). Os logs ficam pesquisáveis por correlationId.
+  # ---------------------------------------------------------------------------
+  opensearch:
+    image: opensearchproject/opensearch:2.17.0
+    profiles: ["observability"]
+    environment:
+      discovery.type: "single-node"
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.17.0
+    profiles: ["observability"]
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    profiles: ["observability"]
+    command: ["--config=/etc/otel/config.yaml"]
+    # Root para ler os arquivos de log dos containers (donos root, modo 0700).
+    user: "0:0"
+    volumes:
+      - ./docs/observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+      # Tail dos logs dos containers (stdout JSON do json-file driver) — read-only.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      opensearch:
+        condition: service_healthy
