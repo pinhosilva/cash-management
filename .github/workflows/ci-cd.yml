@@ -159,6 +159,23 @@ jobs:
             echo "::notice::Publicado ${remote}:${VER}"
           done
 
+      # Deploy-test: sobe a stack usando as imagens PUBLICADAS no GHCR (override) e roda
+      # o Smoke contra elas — prova o ARTEFATO publicado (não o build local do e2e).
+      # Se falhar, o job para aqui → sem deploy nem release.
+      - name: Deploy-test (Smoke na imagem publicada do GHCR)
+        env:
+          VER: ${{ steps.gitversion.outputs.fullSemVer }}
+        run: |
+          export OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull entries-api balance-api
+          docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d --wait
+          npx --yes newman run docs/postman/CashManagement.postman_collection.json \
+            -e docs/postman/CashManagement.postman_environment.json --folder "Smoke" --delay-request 1000
+
+      - name: Derruba a stack (deploy-test)
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
+
       # Deploy por ambiente conforme a branch (GitFlow). Placeholder: o passo real
       # (push de imagem + apply no cluster) entra quando houver ambiente provisionado.
       - name: Deploy por ambiente

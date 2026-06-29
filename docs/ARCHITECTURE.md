@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.17 (ver Histórico de Revisões no fim do documento)                                                                                             |
+| **Versão**              | 1.0.18 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1671,6 +1671,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.18 | 2026-06-29 | CD: **deploy-test** — sobe a stack com as **imagens publicadas no GHCR** (`docker-compose.ghcr.yml`) e roda o Smoke contra elas, antes do deploy/release. Fecha o ciclo "testa o artefato publicado, não o build local" (build once, promote). |
 | 1.0.17 | 2026-06-29 | CD: o `deploy` passa a **publicar as imagens no GHCR** (`ghcr.io/<owner>/cash-management-{entries,balance}-api`), versionadas por SemVer + short sha (na main, também `latest`). Base do "build once, promote" — a mesma imagem é promovida pelos ambientes. (`packages: write`.) |
 | 1.0.16 | 2026-06-29 | CI/CD **reunificados num workflow** (`ci-cd.yml`): o split em `ci.yml`/`cd.yml` deixava o `deploy` rodar em paralelo ao CI no push (sem `needs` cruzando arquivos). Voltando a um arquivo, o `deploy` gateia em `needs: [e2e, security]` — só roda se o CI passar. Em PR aparece skipped. |
 | 1.0.15 | 2026-06-29 | CI/CD separados em **dois workflows**: `ci.yml` (validação — PR + push, jobs por projeto) e `cd.yml` (entrega — só push develop/main/release). O CD ganha **build das imagens** (sem publicar) e **release por canal** (develop→alpha, release/*→rc, main→estável). Portão CI→CD pela **branch protection** (`needs:` não cruza workflows). |

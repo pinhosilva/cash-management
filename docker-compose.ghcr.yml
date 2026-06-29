@@ -1,0 +1,11 @@
+# Override do deploy-test (CI): roda os dois serviços a partir das imagens
+# PUBLICADAS no GHCR, em vez de buildar — prova que o ARTEFATO publicado sobe e
+# funciona (o "build once, promote"). Requer OWNER e VER no ambiente. Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d --wait
+services:
+  entries-api:
+    image: ghcr.io/${OWNER}/cash-management-entries-api:${VER}
+    pull_policy: always
+  balance-api:
+    image: ghcr.io/${OWNER}/cash-management-balance-api:${VER}
+    pull_policy: always

@@ -299,10 +299,12 @@ pra ver de imediato qual é):
 
 **CD — `deploy`** (`needs: e2e, security`; `if` push em develop/main/release, nunca
 em PR): build + **push das imagens pro GHCR** (`ghcr.io/<owner>/cash-management-*`,
-versionadas por SemVer + short sha; na main também `latest`), deploy por ambiente
-(placeholder) e **release por canal** — develop → `alpha`, release/* → `rc`
-(pre-release), main → estável. Como está no **mesmo workflow**, o `deploy` só roda
-**depois** que o CI inteiro passou (gate por `needs`); em PR aparece **skipped**.
+versionadas por SemVer + short sha; na main também `latest`); **deploy-test** —
+sobe a stack com as **imagens publicadas** ([`docker-compose.ghcr.yml`](docker-compose.ghcr.yml))
+e roda o Smoke contra elas (prova o *build once*: testa o **artefato**, não o build
+local); deploy por ambiente (placeholder) e **release por canal** — develop →
+`alpha`, release/* → `rc` (pre-release), main → estável. Como está no **mesmo
+workflow**, o `deploy` só roda **depois** que o CI passou (`needs`); em PR aparece **skipped**.
 
 - **[`dependabot.yml`](.github/dependabot.yml)** — PRs automáticos de update (NuGet,
   GitHub Actions, imagens base Docker), com minor+patch agrupados e majors isolados.
