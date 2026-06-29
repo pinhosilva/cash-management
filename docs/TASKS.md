@@ -244,4 +244,9 @@ A Fatia 1 está concluída quando:
 - [ ] Nada fora de escopo foi implementado (sem débito/estorno/multi-tenant/etc.).
 - [ ] O que divergiu do `ARCHITECTURE.md` (se algo) foi **levantado com o revisor**, não decidido sozinho.
 
-> **Próximas fatias** (depois desta): débito → estorno → idempotência de escrita completa → segurança (scopes/ACLs Kafka) → observabilidade (OTel/OpenSearch) → testes de carga (k6). Cada uma ganha seu próprio bloco de tarefas quando chegar a vez.
+> **Próximas fatias** (em ordem). Cada uma ganha seu próprio bloco de tarefas quando chegar a vez:
+>
+> - ✅ **Débito** — implementado (espelha o crédito; `POST /entries` roteia por `type`, default `Credit`; a projeção do Balance **subtrai**, `balance = totalCredits − totalDebits`, mesma dedup atômica por `event.id`).
+> - **Estorno (compensação)** — `POST /entries/{id}/reversal`. Em Event Sourcing **não se apaga nem edita** o lançamento original: registra-se um **evento compensatório** (`EntryReversedEvent`) que reverte o efeito na projeção (desfaz o crédito/débito do dia). Idempotente por `event.id`, como o resto. _(Hoje o request "Estornar lançamento" no Postman está marcado como fatia futura e retorna 404.)_
+> - **Idempotência de escrita — endurecimento.** O caso base **já funciona** (mesma `Idempotency-Key` ⇒ mesmo `id`; dedup gravada na **mesma transação** do evento; janela de 24h). Falta para produção: **(a) fingerprint do payload** — mesma chave com corpo diferente deve dar `422`, não devolver o id antigo; **(b) corrida** — duas requisições simultâneas com a mesma chave: tratar a violação do índice único resolvendo para o id existente em vez de `500`; **(c) expiração/limpeza** — purgar chaves além da janela para a tabela não crescer sem limite; **(d) escopo por merchant/tenant**. A chave hoje também é **opcional** (sem o header não há dedup) — documentar ou torná-la obrigatória na escrita.
+> - Depois: **segurança** (scopes/ACLs no Kafka) → **observabilidade** (os 3 pilares OTel: métricas + traces, hoje só logs) → **testes de carga** (k6, validar o RNF de 50 req/s).

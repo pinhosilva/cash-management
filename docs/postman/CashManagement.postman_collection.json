@@ -68,7 +68,36 @@
           ]
         },
         {
-          "name": "3. Obter token de leitura (Balance)",
+          "name": "3. Registrar débito",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{write_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"Debit\",\n  \"amount\": 23.45,\n  \"occurredAt\": \"2026-06-26T10:00:00Z\"\n}" },
+            "url": { "raw": "{{entries_url}}/entries", "host": ["{{entries_url}}"], "path": ["entries"] },
+            "description": "Registra um débito (subtrai do saldo do dia) usando o token de **escrita** do Entries."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json().result || pm.response.json();",
+                  "pm.test('retorna id do lancamento', () => pm.expect(result.id).to.be.a('string'));",
+                  "pm.environment.set('expectedDebit', 23.45);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Obter token de leitura (Balance)",
           "request": {
             "auth": { "type": "noauth" },
             "method": "GET",
@@ -92,7 +121,7 @@
           ]
         },
         {
-          "name": "4. Consultar saldo (com polling)",
+          "name": "5. Consultar saldo (com polling)",
           "request": {
             "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{read_token}}", "type": "string" }] },
             "method": "GET",
@@ -106,18 +135,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const expected = Number(pm.environment.get('expectedCredit'));",
+                  "const expectedCredit = Number(pm.environment.get('expectedCredit'));",
+                  "const expectedDebit = Number(pm.environment.get('expectedDebit') || 0);",
                   "let attempts = Number(pm.environment.get('pollAttempts') || 0);",
                   "const body = pm.response.code === 200 ? pm.response.json() : null;",
                   "// Resposta vem no envelope padrão (§4.4): o saldo está em `result`.",
                   "const result = body && body.result ? body.result : body;",
-                  "const reflected = result && Number(result.totalCredits) >= expected;",
+                  "const creditOk = result && Number(result.totalCredits) >= expectedCredit;",
+                  "const debitOk = result && Number(result.totalDebits) >= expectedDebit;",
+                  "const reflected = creditOk && debitOk;",
                   "if (!reflected && attempts < 10) {",
                   "  pm.environment.set('pollAttempts', attempts + 1);",
                   "  pm.execution.setNextRequest(pm.info.requestName);",
                   "} else {",
                   "  pm.environment.unset('pollAttempts');",
-                  "  pm.test('saldo reflete o crédito após a projeção', () => pm.expect(reflected).to.be.true);",
+                  "  pm.test('saldo reflete o crédito após a projeção', () => pm.expect(creditOk).to.be.true);",
+                  "  pm.test('saldo reflete o débito após a projeção', () => pm.expect(debitOk).to.be.true);",
                   "}"
                 ]
               }
@@ -125,7 +158,7 @@
           ]
         },
         {
-          "name": "5. Sem token (401)",
+          "name": "6. Sem token (401)",
           "request": {
             "auth": { "type": "noauth" },
             "method": "GET",
@@ -283,7 +316,7 @@
           ]
         },
         {
-          "name": "Estornar lançamento",
+          "name": "Estornar lançamento (fatia futura)",
           "request": {
             "method": "POST",
             "header": [
@@ -299,7 +332,7 @@
               "host": ["{{entries_url}}"],
               "path": ["entries", "{{entryId}}", "reversal"]
             },
-            "description": "Estorna (compensa) o lançamento criado anteriormente. Usa o entryId salvo no environment."
+            "description": "Fatia futura: o endpoint de estorno ainda nao existe na API (POST /entries/{id}/reversal retorna 404). Mantido como contrato planejado — o estorno sera um evento compensatorio (nao altera o log imutavel)."
           },
           "event": [
             {
@@ -307,7 +340,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('estorno aceito (200/201)', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                  "// Fatia futura: o endpoint ainda nao existe — documenta o 404 atual para nao falhar a colecao.",
+                  "pm.test('estorno ainda nao implementado (404)', () => pm.expect(pm.response.code).to.eql(404));"
                 ]
               }
             }
