@@ -22,4 +22,18 @@ public class EntryTypeTests
         a.ShouldBe(b);
         (a == b).ShouldBeTrue();
     }
+
+    [Fact]
+    public void Debit_is_defined()
+    {
+        EntryType.Debit.ShouldNotBeNull();
+        EntryType.Debit.Name.ShouldBe("Debit");
+    }
+
+    [Fact]
+    public void Credit_and_debit_are_distinct()
+    {
+        EntryType.Credit.ShouldNotBe(EntryType.Debit);
+        (EntryType.Credit == EntryType.Debit).ShouldBeFalse();
+    }
 }
