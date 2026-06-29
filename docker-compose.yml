@@ -1,7 +1,9 @@
 # Orquestração local da Fatia 1 (crédito ponta-a-ponta) — T11.
 #
 #   Stack básica (infra + 2 serviços):   docker compose up --build
+#   Com Kafka UI (ver eventos):          docker compose --profile tools up --build
 #   Com observabilidade (OpenSearch):    docker compose --profile observability up --build
+#   Tudo:                                docker compose --profile tools --profile observability up --build
 #
 # Portas publicadas no host:
 #   entries-api          -> 8080   (POST /entries, GET /dev/token [escrita], /health/*, /swagger)
@@ -9,6 +11,7 @@
 #   sqlserver            -> 1433
 #   mongodb              -> 27017
 #   kafka                -> 9092 (host) / 29092 (interno entre containers)
+#   kafka-ui             -> 8088   (profile tools)
 #   opensearch           -> 9200   (profile observability)
 #   opensearch-dashboards-> 5601   (profile observability)
 #
@@ -80,6 +83,23 @@ services:
       timeout: 10s
       retries: 12
       start_period: 20s
+
+  # Kafka UI (profile `tools`): ver tópicos, mensagens e consumer lag pelo navegador.
+  #   docker compose --profile tools up   →   http://localhost:8088
+  # Conecta no listener INTERNO (kafka:29092), pois roda dentro da rede do compose.
+  kafka-ui:
+    # fork mantido do kafka-ui (o provectus/kafka-ui foi arquivado).
+    image: ghcr.io/kafbat/kafka-ui:latest
+    profiles: [tools]
+    ports:
+      - "8088:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "cash-management"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
 
   # ---------------------------------------------------------------------------
   # Serviços .NET
