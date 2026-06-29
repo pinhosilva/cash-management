@@ -90,35 +90,20 @@ jobs:
           -e docs/postman/CashManagement.postman_environment.json
           --folder "Smoke" --delay-request 1000
 
-      # Report-only: lista CVEs das imagens mas NÃO bloqueia (CVE de base image
-      # upstream foge do nosso controle). Action oficial (instala o Trivy de forma
-      # confiável) + continue-on-error (nunca derruba a esteira). Para virar gate
-      # duro, troque `exit-code: '0'` por `'1'` e tire o `continue-on-error`.
-      - name: IDs das imagens construídas
-        id: imgs
+      # Report-only: lista CVEs das imagens mas NÃO bloqueia. Roda o Trivy pela
+      # imagem Docker oficial (pull confiável, sem `uses:`/install a resolver) +
+      # continue-on-error (nunca derruba o e2e). Para virar gate duro, tire o
+      # `continue-on-error` e o `|| true`, e some `--exit-code 1`.
+      - name: 'Scan das imagens (Trivy, report-only)'
+        continue-on-error: true
         run: |
-          echo "entries=$(docker compose images -q entries-api)" >> "$GITHUB_OUTPUT"
-          echo "balance=$(docker compose images -q balance-api)" >> "$GITHUB_OUTPUT"
-
-      - name: 'Scan da imagem · Entries (Trivy, report-only)'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ steps.imgs.outputs.entries }}
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-          exit-code: '0'
-          format: table
-
-      - name: 'Scan da imagem · Balance (Trivy, report-only)'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ steps.imgs.outputs.balance }}
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-          exit-code: '0'
-          format: table
+          for svc in entries-api balance-api; do
+            img=$(docker compose images -q "$svc")
+            echo "::group::Trivy $svc ($img)"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.58.0 image --ignore-unfixed --severity CRITICAL,HIGH --no-progress "$img" || true
+            echo "::endgroup::"
+          done
 
       - name: Derruba a stack
         if: always()
@@ -126,7 +111,7 @@ jobs:
 
   deploy: # só sobe se TODOS os gates passaram, e só nas branches de ambiente (GitFlow)
     needs: [e2e, security] # e2e já depende de entries+balance → deploy depende de tudo
-    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/') || github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/') || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     permissions:
       contents: write # criar a tag + release notes na main
