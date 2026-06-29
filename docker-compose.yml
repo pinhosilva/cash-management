@@ -81,6 +81,22 @@ services:
       retries: 12
       start_period: 20s
 
+  # Kafka UI (profile `tools`): ver tópicos, mensagens e consumer lag pelo navegador.
+  #   docker compose --profile tools up   →   http://localhost:8088
+  # Conecta no listener INTERNO (kafka:29092), pois roda dentro da rede do compose.
+  kafka-ui:
+    image: provectus/kafka-ui:v0.7.2
+    profiles: [tools]
+    ports:
+      - "8088:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "cash-management"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   # ---------------------------------------------------------------------------
   # Serviços .NET
   # ---------------------------------------------------------------------------
