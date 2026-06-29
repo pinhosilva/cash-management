@@ -1,0 +1,211 @@
+name: ci-cd
+
+# CI + CD num workflow só, para o `deploy` poder gatear no CI via `needs:` (que NÃO
+# cruza arquivos). Jobs de CI isolados por projeto; `deploy` só roda em push nas
+# branches de ambiente E só depois de e2e + security passarem.
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop, 'release/**', 'hotfix/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # mínimo por padrão; cada job eleva só o que precisa
+
+jobs:
+  entries: # ── Serviço Entries (Entries.sln): unit + integração, isolados ──
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - name: 'Unit · Entries'
+        run: dotnet test src/CashManagement.Entries/tests/CashManagement.Entries.UnitTests/CashManagement.Entries.UnitTests.csproj -c Release
+      - name: 'Integração · Entries (Testcontainers: SQL Server + Kafka)'
+        run: dotnet test src/CashManagement.Entries/tests/CashManagement.Entries.IntegrationTests/CashManagement.Entries.IntegrationTests.csproj -c Release
+
+  balance: # ── Serviço Balance (Balance.sln): unit + integração, isolados ──
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - name: 'Unit · Balance'
+        run: dotnet test src/CashManagement.Balance/tests/CashManagement.Balance.UnitTests/CashManagement.Balance.UnitTests.csproj -c Release
+      - name: 'Integração · Balance (Testcontainers: Kafka + MongoDB)'
+        run: dotnet test src/CashManagement.Balance/tests/CashManagement.Balance.IntegrationTests/CashManagement.Balance.IntegrationTests.csproj -c Release
+
+  security: # ── Cross-cutting: SAST + secrets + deps (vale para o repo inteiro) ──
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # CodeQL publica no code scanning
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: 'Secret scan (gitleaks)'
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks detect --source . --no-git --redact --config .gitleaks.toml
+
+      - name: 'CodeQL init (C#, build-mode none)'
+        uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          build-mode: none
+
+      - name: 'Pacotes vulneráveis (relatório; o NuGetAudit do build é o gate duro)'
+        run: |
+          dotnet restore src/CashManagement.Entries/CashManagement.Entries.sln
+          dotnet restore src/CashManagement.Balance/CashManagement.Balance.sln
+          dotnet list src/CashManagement.Entries/CashManagement.Entries.sln package --vulnerable --include-transitive
+          dotnet list src/CashManagement.Balance/CashManagement.Balance.sln package --vulnerable --include-transitive
+
+      - name: 'CodeQL analyze'
+        uses: github/codeql-action/analyze@v4
+
+  e2e: # ── Cross-service: sobe a stack inteira e roda o Smoke (Newman) ──
+    needs: [entries, balance] # só faz sentido se os dois serviços passaram
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sobe a stack (compose, espera ficar healthy)
+        run: docker compose up -d --build --wait
+
+      - name: 'E2E · Smoke (Newman, só a pasta Smoke)'
+        run: >
+          npx --yes newman run docs/postman/CashManagement.postman_collection.json
+          -e docs/postman/CashManagement.postman_environment.json
+          --folder "Smoke" --delay-request 1000
+
+      # Report-only: lista CVEs das imagens mas NÃO bloqueia. Roda o Trivy pela imagem
+      # Docker oficial (sem `uses:`/install a resolver) + continue-on-error.
+      - name: 'Scan das imagens (Trivy, report-only)'
+        continue-on-error: true
+        run: |
+          for svc in entries-api balance-api; do
+            img=$(docker compose images -q "$svc")
+            echo "::group::Trivy $svc ($img)"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.58.0 image --ignore-unfixed --severity CRITICAL,HIGH --no-progress "$img" || true
+            echo "::endgroup::"
+          done
+
+      - name: Derruba a stack
+        if: always()
+        run: docker compose down -v
+
+  deploy: # ── CD: só em push nas branches de ambiente, E só se o CI passou (needs) ──
+    needs: [e2e, security] # e2e já depende de entries+balance → deploy depende de tudo
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/') || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # criar tags/releases (alpha/rc/estável)
+      packages: write # publicar as imagens no GHCR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # GitVersion precisa do histórico completo
+
+      - name: Setup GitVersion
+        uses: gittools/actions/gitversion/setup@v4
+        with:
+          versionSpec: '6.x'
+
+      - name: Calcula a versão (branch + commits semânticos)
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v4
+
+      - name: Login no GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # CD — build do artefato e PUSH pro GHCR, versionado. Mesma imagem que será
+      # promovida pelos ambientes (build once). Tags: a versão SemVer + o short sha;
+      # na main, também majorMinorPatch + latest.
+      - name: Build + push das imagens (GHCR)
+        env:
+          VER: ${{ steps.gitversion.outputs.fullSemVer }}
+          MMP: ${{ steps.gitversion.outputs.majorMinorPatch }}
+          SHA: ${{ steps.gitversion.outputs.shortSha }}
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          VER="${VER//+/-}"   # tag Docker não aceita o '+' do build metadata SemVer (ex.: 0.2.0-beta.1+124)
+          docker compose build entries-api balance-api
+          for svc in entries-api balance-api; do
+            # nome determinístico da imagem que o compose builda (projeto 'cash-management',
+            # fixado por `name:` no compose). `docker compose images -q` exigiria containers.
+            local_img="cash-management-${svc}"
+            remote="ghcr.io/${owner}/cash-management-${svc}"
+            docker tag "$local_img" "${remote}:${VER}"
+            docker tag "$local_img" "${remote}:${SHA}"
+            docker push "${remote}:${VER}"
+            docker push "${remote}:${SHA}"
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              docker tag "$local_img" "${remote}:${MMP}"
+              docker tag "$local_img" "${remote}:latest"
+              docker push "${remote}:${MMP}"
+              docker push "${remote}:latest"
+            fi
+            echo "::notice::Publicado ${remote}:${VER}"
+          done
+
+      # Deploy-test: sobe a stack usando as imagens PUBLICADAS no GHCR (override) e roda
+      # o Smoke contra elas — prova o ARTEFATO publicado (não o build local do e2e).
+      # Se falhar, o job para aqui → sem deploy nem release.
+      - name: Deploy-test (Smoke na imagem publicada do GHCR)
+        env:
+          VER: ${{ steps.gitversion.outputs.fullSemVer }}
+        run: |
+          export OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          export VER="${VER//+/-}"   # casa com a tag publicada no GHCR (sem '+')
+          docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull entries-api balance-api
+          docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d --wait
+          npx --yes newman run docs/postman/CashManagement.postman_collection.json \
+            -e docs/postman/CashManagement.postman_environment.json --folder "Smoke" --delay-request 1000
+
+      - name: Derruba a stack (deploy-test)
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
+
+      # Deploy por ambiente conforme a branch (GitFlow). Placeholder: o passo real
+      # (push de imagem + apply no cluster) entra quando houver ambiente provisionado.
+      - name: Deploy por ambiente
+        run: |
+          case "${{ github.ref }}" in
+            refs/heads/develop)   echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → DEV (integração)" ;;
+            refs/heads/release/*) echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → STAGING (homologação)" ;;
+            refs/heads/main)      echo "Deploy ${{ steps.gitversion.outputs.majorMinorPatch }} → PRODUÇÃO" ;;
+          esac
+          echo "::notice::Deploy real ainda não provisionado — passo placeholder (§9.2)."
+
+      # Release por canal (GitFlow + SemVer): develop → alpha, release/* → rc (ambos
+      # pre-release), main → estável. Dá pra ver a versão evoluir. Só GitHub Release.
+      - name: Release por canal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ steps.gitversion.outputs.fullSemVer }}
+          MMP: ${{ steps.gitversion.outputs.majorMinorPatch }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            tag="v${MMP}"             # estável: v0.2.0
+            flags=""
+          else
+            tag="v${VER//+/-}"        # alpha/rc: v0.2.0-alpha.N-NNN (sem '+', consistente com a tag da imagem)
+            flags="--prerelease"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag já existe — nada a fazer."
+          else
+            gh release create "$tag" --generate-notes --target "${{ github.sha }}" $flags
+          fi

@@ -1,0 +1,78 @@
+# Configuração do OpenTelemetry Collector (contrib) para o profile observability.
+#
+# Estratégia: NÃO instrumentamos o código dos serviços (traces/métricas OTel são
+# fatia futura — §8.2). O Collector apenas TAILA os arquivos de log dos containers
+# (stdout JSON do Serilog, CompactJsonFormatter) via o receiver `filelog`, extrai os
+# campos estruturados (incl. correlationId) e exporta para o OpenSearch — deixando os
+# logs dos dois serviços pesquisáveis por correlationId num índice único.
+#
+# Cada linha do arquivo é um envelope do json-file driver do Docker:
+#   { "log": "<linha original do app>", "stream": "stdout", "time": "..." }
+# O `log` carrega o JSON do Serilog (campos @t, @m, @l, correlationId, service, ...).
+
+receivers:
+  filelog:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    operators:
+      # 1) Desempacota o envelope do Docker json-file.
+      - type: json_parser
+        id: docker-envelope
+        parse_from: body
+        parse_to: body
+        timestamp:
+          parse_from: body.time
+          layout: "%Y-%m-%dT%H:%M:%S.%LZ"
+      # 2) Descarta tudo que NÃO for JSON do Serilog (começa com {"@t").
+      #    O operador `filter` do stanza DROPA a entrada quando a expr casa.
+      - type: filter
+        id: drop-non-serilog
+        expr: 'body.log == nil or (body.log matches "^\\{\"@t\"") == false'
+      # 3) Parse do JSON interno do Serilog para `attributes`.
+      - type: json_parser
+        id: serilog-parser
+        parse_from: body.log
+        parse_to: attributes
+        timestamp:
+          parse_from: attributes["@t"]
+          layout: "%Y-%m-%dT%H:%M:%S.%LZ"
+          layout_type: strptime
+      # 4) Mensagem no corpo: o CompactJsonFormatter emite o template em @mt
+      #    (sempre) e a mensagem renderizada em @m (só quando difere do template).
+      - type: move
+        from: attributes["@mt"]
+        to: body
+        if: 'attributes["@mt"] != nil'
+      - type: move
+        from: attributes["@m"]
+        to: body
+        if: 'attributes["@m"] != nil'
+      # 5) Nível amigável: o CompactJsonFormatter só emite @l quando != Information.
+      - type: move
+        from: attributes["@l"]
+        to: attributes.level
+        if: 'attributes["@l"] != nil'
+
+processors:
+  batch:
+    timeout: 5s
+  resource:
+    attributes:
+      - key: source
+        value: docker-filelog
+        action: upsert
+
+exporters:
+  opensearch:
+    http:
+      endpoint: http://opensearch:9200
+    logs_index: cash-management-logs
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [resource, batch]
+      exporters: [opensearch, debug]

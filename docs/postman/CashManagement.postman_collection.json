@@ -1,0 +1,596 @@
+{
+  "info": {
+    "_postman_id": "cash-management-collection-0001",
+    "name": "Cash Management API",
+    "description": "Coleção de cenários para a solução Cash Management (Lançamentos + Consolidado).\n\n**Organização das pastas:**\n- **Smoke** — caminho crítico que a CI/CD gateia (`newman --folder \"Smoke\"`). Poucos cenários, robustos, com polling no saldo.\n- **Auth / Entries / Balance / Health** — catálogo completo de endpoints para exploração manual (NÃO entram no gate de deploy).\n\nUse o environment **Cash Management — Local**. As URLs e portas são placeholders — ajuste quando o docker-compose definir as portas reais.\n\nFluxo sugerido para explorar: Auth → Entries (crédito/débito) → Balance → cenários de idempotência e erros.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{write_token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Smoke",
+      "description": "Caminho crítico que a CI/CD gateia via `newman --folder \"Smoke\"`. Poucos cenários, robustos, com **polling** no saldo (consistência eventual).\n\n**Dois tokens (ARCHITECTURE §8.1 / §9.1):** o token de **escrita** vem do `/dev/token` do Entries (scope `entries:write`, audience do Entries) e é usado no `POST /entries`; o token de **leitura** vem do `/dev/token` do Balance (scope `balances:read`, audience do Balance) e é usado no `GET /balances/{date}`. Cada serviço valida o token assinado pela SUA própria chave — não há chave/token compartilhado.\n\nO endpoint `/dev/token` é um **GET** e devolve `{ access_token, token_type }`. As outras pastas são para exploração manual e NÃO entram no gate de deploy.",
+      "item": [
+        {
+          "name": "1. Obter token de escrita (Entries)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{entries_url}}/dev/token", "host": ["{{entries_url}}"], "path": ["dev", "token"] },
+            "description": "Token de desenvolvimento do Entries com scope `entries:write` (assinado pela chave do Entries)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('access_token recebido', () => pm.expect(json.access_token).to.be.a('string'));",
+                  "if (json.access_token) pm.environment.set('write_token', json.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Registrar crédito",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{write_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"Credit\",\n  \"amount\": 123.45,\n  \"occurredAt\": \"2026-06-26T10:00:00Z\"\n}" },
+            "url": { "raw": "{{entries_url}}/entries", "host": ["{{entries_url}}"], "path": ["entries"] },
+            "description": "Registra um crédito usando o token de **escrita** do Entries."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('expectedCredit', 123.45);",
+                  "pm.environment.set('smokeDate', '2026-06-26');",
+                  "pm.environment.unset('pollAttempts');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Registrar débito",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{write_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"Debit\",\n  \"amount\": 23.45,\n  \"occurredAt\": \"2026-06-26T10:00:00Z\"\n}" },
+            "url": { "raw": "{{entries_url}}/entries", "host": ["{{entries_url}}"], "path": ["entries"] },
+            "description": "Registra um débito (subtrai do saldo do dia) usando o token de **escrita** do Entries."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json().result || pm.response.json();",
+                  "pm.test('retorna id do lancamento', () => pm.expect(result.id).to.be.a('string'));",
+                  "pm.environment.set('expectedDebit', 23.45);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Obter token de leitura (Balance)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{balance_url}}/dev/token", "host": ["{{balance_url}}"], "path": ["dev", "token"] },
+            "description": "Token de desenvolvimento do Balance com scope `balances:read` (assinado pela chave do Balance)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('access_token recebido', () => pm.expect(json.access_token).to.be.a('string'));",
+                  "if (json.access_token) pm.environment.set('read_token', json.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Consultar saldo (com polling)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{read_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "X-Correlation-Id", "value": "{{$guid}}" }],
+            "url": { "raw": "{{balance_url}}/balances/{{smokeDate}}", "host": ["{{balance_url}}"], "path": ["balances", "{{smokeDate}}"] },
+            "description": "Usa o token de **leitura** do Balance. Espera a projeção (consistência eventual): repete a chamada até o saldo refletir o crédito ou esgotar as tentativas. Use `newman --delay-request 1000` para espaçar os polls."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const expectedCredit = Number(pm.environment.get('expectedCredit'));",
+                  "const expectedDebit = Number(pm.environment.get('expectedDebit') || 0);",
+                  "let attempts = Number(pm.environment.get('pollAttempts') || 0);",
+                  "const body = pm.response.code === 200 ? pm.response.json() : null;",
+                  "// Resposta vem no envelope padrão (§4.4): o saldo está em `result`.",
+                  "const result = body && body.result ? body.result : body;",
+                  "const creditOk = result && Number(result.totalCredits) >= expectedCredit;",
+                  "const debitOk = result && Number(result.totalDebits) >= expectedDebit;",
+                  "const reflected = creditOk && debitOk;",
+                  "if (!reflected && attempts < 10) {",
+                  "  pm.environment.set('pollAttempts', attempts + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.environment.unset('pollAttempts');",
+                  "  pm.test('saldo reflete o crédito após a projeção', () => pm.expect(creditOk).to.be.true);",
+                  "  pm.test('saldo reflete o débito após a projeção', () => pm.expect(debitOk).to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Sem token (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{balance_url}}/balances/{{smokeDate}}", "host": ["{{balance_url}}"], "path": ["balances", "{{smokeDate}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Tokens de desenvolvimento (chave estática, §9.1). Cada serviço emite e valida o seu próprio token: o Entries dá `entries:write` (audience do Entries); o Balance dá `balances:read` (audience do Balance). O endpoint `/dev/token` é um **GET** e devolve `{ access_token, token_type }`.",
+      "item": [
+        {
+          "name": "Token de escrita (Entries)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{entries_url}}/dev/token",
+              "host": ["{{entries_url}}"],
+              "path": ["dev", "token"]
+            },
+            "description": "Emite um JWT de dev do Entries com scope `entries:write`. Em produção, o token vem do IdP real (ARCHITECTURE §8.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('access_token recebido', () => pm.expect(json.access_token).to.be.a('string'));",
+                  "if (json.access_token) { pm.environment.set('write_token', json.access_token); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token de leitura (Balance)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{balance_url}}/dev/token",
+              "host": ["{{balance_url}}"],
+              "path": ["dev", "token"]
+            },
+            "description": "Emite um JWT de dev do Balance com scope `balances:read`. Em produção, o token vem do IdP real (ARCHITECTURE §8.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('access_token recebido', () => pm.expect(json.access_token).to.be.a('string'));",
+                  "if (json.access_token) { pm.environment.set('read_token', json.access_token); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Entries (Lançamentos)",
+      "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{write_token}}", "type": "string" }] },
+      "description": "Usa o token de **escrita** do Entries (`write_token`) — rode \"Auth → Token de escrita (Entries)\" antes.",
+      "item": [
+        {
+          "name": "Registrar crédito",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Credit\",\n  \"amount\": 150.75,\n  \"description\": \"Venda no balcao\",\n  \"occurredAt\": \"2026-06-25T13:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{entries_url}}/entries",
+              "host": ["{{entries_url}}"],
+              "path": ["entries"]
+            },
+            "description": "Registra um crédito. Moeda é BRL (premissa de moeda única). Headers Idempotency-Key e X-Correlation-Id são gerados a cada chamada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "const result = json.result ? json.result : json;",
+                  "pm.test('retorna id do lancamento', () => pm.expect(result.id).to.be.a('string'));",
+                  "if (result.id) { pm.environment.set('entryId', result.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Registrar débito",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Debit\",\n  \"amount\": 40.00,\n  \"description\": \"Compra de insumos\",\n  \"occurredAt\": \"2026-06-25T15:30:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{entries_url}}/entries",
+              "host": ["{{entries_url}}"],
+              "path": ["entries"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json().result || pm.response.json();",
+                  "pm.test('retorna id do lancamento', () => pm.expect(result.id).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estornar lançamento (fatia futura)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Lancamento duplicado\"\n}"
+            },
+            "url": {
+              "raw": "{{entries_url}}/entries/{{entryId}}/reversal",
+              "host": ["{{entries_url}}"],
+              "path": ["entries", "{{entryId}}", "reversal"]
+            },
+            "description": "Fatia futura: o endpoint de estorno ainda nao existe na API (POST /entries/{id}/reversal retorna 404). Mantido como contrato planejado — o estorno sera um evento compensatorio (nao altera o log imutavel)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fatia futura: o endpoint ainda nao existe — documenta o 404 atual para nao falhar a colecao.",
+                  "pm.test('estorno ainda nao implementado (404)', () => pm.expect(pm.response.code).to.eql(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Idempotência — 1ª gravação",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Credit\",\n  \"amount\": 99.90,\n  \"description\": \"Teste de idempotencia\",\n  \"occurredAt\": \"2026-06-25T16:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{entries_url}}/entries",
+              "host": ["{{entries_url}}"],
+              "path": ["entries"]
+            },
+            "description": "Primeira chamada com uma Idempotency-Key fixa (gerada no pre-request)."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json().result || pm.response.json();",
+                  "if (result.id) { pm.environment.set('idempotentEntryId', result.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Idempotência — retry (mesma chave)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Credit\",\n  \"amount\": 99.90,\n  \"description\": \"Teste de idempotencia\",\n  \"occurredAt\": \"2026-06-25T16:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{entries_url}}/entries",
+              "host": ["{{entries_url}}"],
+              "path": ["entries"]
+            },
+            "description": "Reenvia a MESMA Idempotency-Key. Deve retornar o mesmo lançamento, sem criar um novo (dedup de escrita — ARCHITECTURE §4.3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('não cria novo lancamento (mesmo id)', () => {",
+                  "  const result = pm.response.json().result || pm.response.json();",
+                  "  pm.expect(result.id).to.eql(pm.environment.get('idempotentEntryId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sem token → 401",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Credit\",\n  \"amount\": 10.00,\n  \"occurredAt\": \"2026-06-25T16:10:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{entries_url}}/entries",
+              "host": ["{{entries_url}}"],
+              "path": ["entries"]
+            },
+            "description": "Cenário negativo: requisição sem JWT deve ser rejeitada com 401."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Balance (Consolidado)",
+      "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{read_token}}", "type": "string" }] },
+      "description": "Usa o token de **leitura** do Balance (`read_token`) — rode \"Auth → Token de leitura (Balance)\" antes.",
+      "item": [
+        {
+          "name": "Consultar saldo do dia",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Correlation-Id", "value": "{{$guid}}" }],
+            "url": {
+              "raw": "{{balance_url}}/balances/{{date}}",
+              "host": ["{{balance_url}}"],
+              "path": ["balances", "{{date}}"]
+            },
+            "description": "Retorna o saldo consolidado da data (formato YYYY-MM-DD), lido direto da projeção em MongoDB."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const result = json.result ? json.result : json;",
+                  "pm.test('contém os campos do saldo', () => {",
+                  "  pm.expect(result).to.have.property('date');",
+                  "  pm.expect(result).to.have.property('totalCredits');",
+                  "  pm.expect(result).to.have.property('totalDebits');",
+                  "  pm.expect(result).to.have.property('balance');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Entries — liveness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{entries_url}}/health/live",
+              "host": ["{{entries_url}}"],
+              "path": ["health", "live"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Entries — readiness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{entries_url}}/health/ready",
+              "host": ["{{entries_url}}"],
+              "path": ["health", "ready"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Balance — liveness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{balance_url}}/health/live",
+              "host": ["{{balance_url}}"],
+              "path": ["health", "live"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Balance — readiness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{balance_url}}/health/ready",
+              "host": ["{{balance_url}}"],
+              "path": ["health", "ready"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "entries_url", "value": "http://localhost:8080" },
+    { "key": "balance_url", "value": "http://localhost:8081" }
+  ]
+}
