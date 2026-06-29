@@ -12,8 +12,8 @@ namespace CashManagement.Balance.Infrastructure.Messaging;
 /// Consumer Kafka do Balance como <see cref="BackgroundService"/>: faz o loop de
 /// consume no tópico <c>cash.management.entries.events</c>
 /// (<see cref="AutoOffsetReset.Earliest"/>), desserializa o envelope §4.3, roteia por
-/// <c>event.type</c> (só <c>CreditPostedEvent</c> nesta fatia) e delega ao
-/// <see cref="CreditPostedEventHandler"/>. O commit do offset é manual e só ocorre
+/// <c>event.type</c> (<c>CreditPostedEvent</c>/<c>DebitPostedEvent</c>) e delega ao
+/// <see cref="EntryPostedEventHandler"/>. O commit do offset é manual e só ocorre
 /// <b>depois</b> da projeção — at-least-once; a idempotência (dedup por <c>event.id</c>)
 /// no read model torna o reprocesso um no-op.
 /// </summary>
@@ -89,10 +89,10 @@ public sealed class KafkaConsumerService : BackgroundService
 
     private async Task HandleMessageAsync(string payload, CancellationToken cancellationToken)
     {
-        var credit = CreditPostedEventDeserializer.TryParseCredit(payload);
-        if (credit is null)
+        var entry = EntryPostedEventDeserializer.TryParse(payload);
+        if (entry is null)
         {
-            // Tipo fora de escopo desta fatia ou payload inválido — ignora (não loga PII).
+            // Tipo fora de escopo ou payload inválido — ignora (não loga PII).
             using (_logger.BeginScope(new Dictionary<string, object?> { ["component"] = LogComponent.KafkaConsumer }))
             {
                 _logger.LogDebug("Mensagem ignorada (tipo fora de escopo ou payload inválido).");
@@ -104,14 +104,14 @@ public sealed class KafkaConsumerService : BackgroundService
         using (_logger.BeginScope(new Dictionary<string, object?>
         {
             ["component"] = LogComponent.KafkaConsumer,
-            ["correlationId"] = credit.CorrelationId,
+            ["correlationId"] = entry.CorrelationId,
         }))
         {
-            _logger.LogInformation("CreditPostedEvent recebido (eventId={EventId}).", credit.EventId);
+            _logger.LogInformation("Evento {Kind} recebido (eventId={EventId}).", entry.Kind, entry.EventId);
         }
 
         using var scope = _scopeFactory.CreateScope();
-        var handler = scope.ServiceProvider.GetRequiredService<CreditPostedEventHandler>();
-        await handler.HandleAsync(credit, cancellationToken);
+        var handler = scope.ServiceProvider.GetRequiredService<EntryPostedEventHandler>();
+        await handler.HandleAsync(entry, cancellationToken);
     }
 }

@@ -11,13 +11,13 @@ public sealed record EventEnvelope(
     string? CorrelationId,
     string? InitiatedBy,
     DateTime OccurredAt,
-    CreditData? Data);
+    EntryData? Data);
 
 public sealed record EventDescriptor(string Id, string Type, int Version);
 
 public sealed record AggregateDescriptor(string Id, int Version);
 
-/// <summary>Payload de <c>data</c> de um <c>CreditPostedEvent</c> (§4.3).</summary>
-public sealed record CreditData(string AggregateId, MoneyData? Amount, DateTime OccurredAt);
+/// <summary>Payload de <c>data</c> de um lançamento (crédito/débito) (§4.3).</summary>
+public sealed record EntryData(string AggregateId, MoneyData? Amount, DateTime OccurredAt);
 
 public sealed record MoneyData(decimal Amount, string Currency);

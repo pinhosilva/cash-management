@@ -35,7 +35,7 @@ public static class DependencyInjection
 
         services.AddScoped<IDailyBalanceProjection, MongoDailyBalanceProjection>();
         services.AddScoped<IDailyBalanceReader, MongoDailyBalanceReader>();
-        services.AddScoped<CreditPostedEventHandler>();
+        services.AddScoped<EntryPostedEventHandler>();
 
         services.AddHostedService<KafkaConsumerService>();
 

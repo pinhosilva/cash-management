@@ -5,12 +5,13 @@ namespace CashManagement.Entries.Domain.ValueObjects;
 /// (instâncias estáticas), imutável e com igualdade por valor (record).
 /// </summary>
 /// <remarks>
-/// Nesta fatia só <see cref="Credit"/> é usado (escopo: apenas crédito). O
-/// <c>Debit</c> entra na fatia de débito, junto com seu comportamento.
+/// <see cref="Credit"/> soma ao saldo; <see cref="Debit"/> subtrai. Cada valor é
+/// classificado pelo evento que reconstrói o agregado (ver <c>Entry.RegisterEvents</c>).
 /// </remarks>
 public sealed record EntryType
 {
     public static readonly EntryType Credit = new("Credit");
+    public static readonly EntryType Debit = new("Debit");
 
     private EntryType(string name) => Name = name;
 
