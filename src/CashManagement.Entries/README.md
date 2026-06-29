@@ -34,7 +34,10 @@ CashManagement.Entries.Infrastructure/ # Implementações concretas
 
 CashManagement.Entries.Api/            # Camada de entrada
 ├── Controllers/                       # Endpoints REST (ex: POST /entries)
-└── Middleware/                        # Autenticação JWT, tratamento de erros
+├── Auth/                              # JWT: token de dev + checagem de scope
+├── Correlation/                       # Middleware de correlationId (+ contexto de idempotência)
+├── Http/                              # Middleware de erros → envelope padrão (§4.4)
+└── Configuration/                     # Composition root (DI, health, feature flags)
 
 tests/
 ├── CashManagement.Entries.UnitTests/         # Testes de domínio e application (isolados)

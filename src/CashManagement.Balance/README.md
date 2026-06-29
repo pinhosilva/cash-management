@@ -29,7 +29,10 @@ CashManagement.Balance.Infrastructure/ # Implementações concretas
 
 CashManagement.Balance.Api/            # Camada de entrada
 ├── Controllers/                       # Endpoints REST (ex: GET /balances/{date})
-└── Middleware/                        # Autenticação JWT, tratamento de erros
+├── Auth/                              # JWT: token de dev + checagem de scope
+├── Correlation/                       # Middleware de correlationId
+├── Http/                              # Middleware de erros → envelope padrão (§4.4)
+└── Configuration/                     # Composition root (DI, health)
 
 tests/
 ├── CashManagement.Balance.UnitTests/         # Testes de application (isolados)
