@@ -8,10 +8,11 @@ namespace CashManagement.Balance.Application.Features.BalanceProjection;
 public interface IDailyBalanceProjection
 {
     /// <summary>
-    /// Aplica um crédito à projeção do dia, de forma idempotente por
-    /// <paramref name="eventId"/>. Se a <paramref name="eventId"/> já foi aplicada,
-    /// não altera nada (no-op).
+    /// Aplica um lançamento à projeção do dia, de forma idempotente por
+    /// <paramref name="eventId"/>. Crédito soma e débito subtrai do saldo, conforme
+    /// <paramref name="kind"/>. Se a <paramref name="eventId"/> já foi aplicada, não
+    /// altera nada (no-op).
     /// </summary>
-    /// <returns><c>true</c> se o crédito foi aplicado; <c>false</c> se já tinha sido (duplicado).</returns>
-    Task<bool> ApplyCreditAsync(string eventId, DateOnly date, decimal amount, CancellationToken cancellationToken = default);
+    /// <returns><c>true</c> se foi aplicado; <c>false</c> se já tinha sido (duplicado).</returns>
+    Task<bool> ApplyAsync(string eventId, DateOnly date, decimal amount, EntryKind kind, CancellationToken cancellationToken = default);
 }
