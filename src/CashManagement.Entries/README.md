@@ -89,7 +89,6 @@ public sealed class Entry : AggregateRoot
 {
     private EntryType _type;
     private Money _amount;
-    private bool _isReversed;
 
     private Entry() { }                          // reconstrução por replay
 
@@ -100,23 +99,25 @@ public sealed class Entry : AggregateRoot
         return entry;
     }
 
-    public Result Reverse()
+    public static Entry PostDebit(Guid id, Money amount, DateTime occurredAt)
     {
-        if (_isReversed)
-            return Result.Fail(new Error("ENTRY_ALREADY_REVERSED",
-                                         "Entry already reversed.", ErrorType.Conflict));
-        Emit(new EntryReversedEvent(Id));
-        return Result.Ok();
+        var entry = new Entry();
+        entry.Emit(new DebitPostedEvent(id, amount, occurredAt));
+        return entry;
     }
 
     protected override void RegisterEvents()               // só eventos mutam estado
     {
         On<CreditPostedEvent>(e => { _type = EntryType.Credit; _amount = e.Amount; });
         On<DebitPostedEvent>(e  => { _type = EntryType.Debit;  _amount = e.Amount; });
-        On<EntryReversedEvent>(_ => _isReversed = true);
     }
 }
 ```
+
+> O **estorno** (`Reverse()` → `EntryReversedEvent`, marcando o lançamento como
+> revertido) é **fatia futura** — será um **evento compensatório** (não muta nem
+> apaga o lançamento original). Ver _Próximas fatias_ em
+> [`/docs/TASKS.md`](../../../docs/TASKS.md).
 
 O **mediator** (dispatcher próprio) captura o comando e **devolve resultado**;
 numa criação, o resultado é o **id** (não o agregado — não se vaza o write

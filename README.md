@@ -177,7 +177,7 @@ docker compose down -v       # idem + apaga os volumes (zera SQL/Mongo/Kafka)
 | Entries  | `GET`   | `/dev/token`                      | Token de dev com scope `entries:write` (404 em produção).      |
 | Balance  | `GET`   | `/balances/{date}`                | Retorna o saldo consolidado de uma data. Requer JWT `balances:read`. |
 | Balance  | `GET`   | `/dev/token`                      | Token de dev com scope `balances:read` (404 em produção).      |
-| Ambos    | `GET`   | `/health/live` · `/health/ready` | *Liveness*/*readiness* para orquestração (sem autenticação). |
+| Ambos    | `GET`   | `/health/live` · `/health/ready` · `/health` | *Liveness* / *readiness* (gateia tráfego, só SQL) / visão completa SQL+Kafka — sem autenticação. |
 
 ### Exemplos com `curl`
 
@@ -215,8 +215,8 @@ curl -s http://localhost:8081/balances/2026-06-26 \
 
 A pasta [`docs/postman/`](docs/postman/) traz uma **collection** pronta para
 importar no Postman, com cenários de teste já configurados (crédito, débito,
-estorno, idempotência, `401` sem token e health checks) e um **environment**
-local.
+idempotência, `401` sem token e health checks; o **estorno** está marcado como
+fatia futura — ainda retorna `404`) e um **environment** local.
 
 A collection é organizada em pastas: **`Smoke`** é o caminho crítico que a
 **CI/CD gateia** (`newman --folder "Smoke"`, com polling no saldo); as demais
@@ -228,8 +228,9 @@ explorar — e ficam **fora** do gate de deploy.
 2. Selecione o environment **Cash Management — Local** (`entries_url`/`balance_url`
    já apontam para `8080`/`8081`).
 3. O fluxo do `Smoke` é o **dois tokens**: obtém o token de **escrita** no Entries
-   → registra o crédito → obtém o token de **leitura** no Balance → consulta o
-   saldo (com **polling**) → request sem token retorna `401`.
+   → registra um **crédito** e um **débito** → obtém o token de **leitura** no
+   Balance → consulta o saldo (com **polling**, conferindo crédito e débito) →
+   request sem token retorna `401`.
 
 ### Smoke via Newman (a prova da fatia)
 
@@ -259,7 +260,8 @@ docker run --rm --network cash-management_default \
 ## Validar tudo (passo a passo)
 
 **1. Automático — a prova da fatia.** Com a stack no ar, rode o `Smoke` via Newman
-(seção acima): token → crédito → saldo (com polling) → `401`. Verde = fluxo OK.
+(seção acima): token → crédito → débito → saldo (com polling, confere crédito e
+débito) → `401`. Verde = fluxo OK.
 
 **2. Visual — ver acontecendo.** Suba com os dois profiles
 (`docker compose --profile tools --profile observability up --build`) e siga:
@@ -267,7 +269,7 @@ docker run --rm --network cash-management_default \
 | # | Onde | Faça | Veja |
 | --- | --- | --- | --- |
 | 1 | **Swagger Entries** — http://localhost:8080/swagger | `GET /dev/token` → copie o `access_token` → `POST /entries` (Authorize com o Bearer) | `201 Created` + `{ id }` |
-| 2 | **Kafka UI** — http://localhost:8088 | Topics → `cash.management.entries.events` → **Messages** | o **`CreditPostedEvent`** (envelope §4.3 no corpo) |
+| 2 | **Kafka UI** — http://localhost:8088 | Topics → `cash.management.entries.events` → **Messages** | os eventos **`CreditPostedEvent`** / **`DebitPostedEvent`** (envelope §4.3 no corpo) |
 | 3 | **Kafka UI** — http://localhost:8088 | **Consumers** | o **consumer lag** do Balance indo a `0` (ele consumiu) |
 | 4 | **Swagger Balance** — http://localhost:8081/swagger | `GET /dev/token` → `GET /balances/{data de hoje}` | o **saldo** refletindo o crédito (eventual; repita se preciso) |
 | 5 | **OpenSearch Dashboards** — http://localhost:5601 | *Discover* (index `cash-management-logs*`) → filtre por `attributes.correlationId` | os **logs dos dois serviços** na mesma requisição |

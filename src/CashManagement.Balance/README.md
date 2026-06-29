@@ -20,7 +20,7 @@ deliberadamente mais simples (3 camadas) e não um espelho do Entries.
 ```
 CashManagement.Balance.Application/    # Projeção e consulta (organizadas por vertical slice)
 └── Features/                          # Uma pasta por caso de uso
-    ├── BalanceProjection/            # Handlers que projetam eventos do Kafka (ex: CreditPostedEventHandler)
+    ├── BalanceProjection/            # Handlers que projetam eventos do Kafka (ex: EntryPostedEventHandler — crédito/débito)
     └── GetDailyBalance/              # Query + handler + DTO da consulta (ex: GetDailyBalanceQuery, DailyBalanceDto)
 
 CashManagement.Balance.Infrastructure/ # Implementações concretas
