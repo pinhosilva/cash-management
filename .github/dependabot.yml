@@ -1,0 +1,35 @@
+# Dependabot — atualizações automáticas de dependências (segurança + manutenção).
+# Abre PRs quando sai correção (ex.: o CVE transitivo que tivemos de suprimir na
+# Infra do Balance é atualizado aqui assim que houver versão corrigida).
+version: 2
+updates:
+  # Pacotes NuGet dos dois serviços (Dependabot descobre os projetos sob a raiz).
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore(deps)
+
+  # As próprias actions usadas na esteira.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(ci)
+
+  # Imagens base dos Dockerfiles dos dois serviços.
+  - package-ecosystem: docker
+    directory: /src/CashManagement.Entries/CashManagement.Entries.Api
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(docker)
+  - package-ecosystem: docker
+    directory: /src/CashManagement.Balance/CashManagement.Balance.Api
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(docker)

@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.12 (ver Histórico de Revisões no fim do documento)                                                                                             |
+| **Versão**              | 1.0.13 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1395,6 +1395,13 @@ responde 404**) emite um token válido com os *scopes* necessários (`entries:wr
 | 2 — Integração | event store, outbox, Kafka e Mongo reais | `dotnet test` + Testcontainers |
 | 3 — E2E (API) | a pasta **Smoke** da collection (`--folder`) contra a stack de pé | **Newman** (CLI do Postman) |
 
+Na **mesma pipeline** (steps do job `test`, sem abrir workflows à parte) rodam
+também os scans de **segurança**: **CodeQL** (SAST C#, `build-mode: none`),
+**gitleaks** (secret scan com allowlist dos segredos de dev), `dotnet list
+--vulnerable` (sobre o `NuGetAudit` que já gateia no build) e **Trivy** nas imagens
+construídas. As permissões do workflow são **mínimas por job** (o `test` só eleva
+`security-events: write` para o CodeQL; o `deploy`, `contents: write` para a tag).
+
 O **Newman** roda a **mesma collection** que se importa no Postman —
 uma única fonte da verdade para os testes de API. Mas a esteira **não gateia na
 collection inteira**: ela roda só a pasta **`Smoke`** (`--folder "Smoke"`), o
@@ -1660,6 +1667,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.13 | 2026-06-28 | CI: scans de **segurança** na mesma pipeline (job `test`) — CodeQL (SAST C#), gitleaks (secret scan, com allowlist dos segredos de dev), `dotnet list --vulnerable` (além do `NuGetAudit` do build) e Trivy (imagens). Permissões mínimas por job + `dependabot.yml` (NuGet/Actions/Docker). |
 | 1.0.12 | 2026-06-28 | T12 (CI/CD): esteira `ci-cd.yml` (3 gates — unit/integração/e2e Newman) + `deploy` por branch (GitFlow) + `GitVersion.yml` (SemVer dos commits semânticos). Gates separados **por projeto de teste** (não por `[Trait]`); *branch protection*/secrets documentados no README (UI do GitHub). |
 | 1.0.11 | 2026-06-28 | T11 (orquestração): `docker-compose` sobe SQL + Mongo + **Kafka em KRaft** (sem Zookeeper) + os 2 serviços, validado pelo smoke (Newman, 2 tokens). Profile `observability` entrega o **pipeline de logs** (OTel Collector → OpenSearch); traces/métricas + Data Prepper ficam para a observabilidade completa (§8.2/§9.1). |
 | 1.0.10 | 2026-06-28 | T10 (API do Balance): readiness de **ambos** os serviços passa a cobrir **só o banco** (Entries: SQL; Balance: Mongo) — o Kafka não gateia nenhum dos dois e aparece como visibilidade em `/health` (§7.1), coerência com a decisão do Entries (v1.0.9). |

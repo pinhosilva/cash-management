@@ -288,9 +288,15 @@ A esteira ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) é o
 **portão**: o job `deploy` só roda com o `test` verde (desenho completo na
 [§9.2 do ARCHITECTURE](docs/ARCHITECTURE.md#92-esteira-de-cicd-github-actions)).
 
-- **Job `test`** — 3 gates: **unit** (`dotnet test` dos projetos `*.UnitTests`),
-  **integração** (`*.IntegrationTests` com Testcontainers) e **e2e** (Newman
-  rodando **só a pasta `Smoke`** contra a stack do `docker compose`).
+- **Job `test`** — tudo numa pipeline só. **Segurança:** secret scan (**gitleaks**,
+  com allowlist dos segredos de dev), **SAST** (**CodeQL** C#), dependências
+  vulneráveis (`dotnet list --vulnerable` + o `NuGetAudit` do build como gate duro)
+  e **scan das imagens** (**Trivy**, CVEs corrigíveis de SO/libs). **3 gates
+  funcionais:** **unit** (`dotnet test` dos `*.UnitTests`), **integração**
+  (`*.IntegrationTests` com Testcontainers) e **e2e** (Newman, só a pasta `Smoke`,
+  contra a stack do `docker compose`). Permissões **mínimas por job**.
+- **[`dependabot.yml`](.github/dependabot.yml)** — PRs automáticos de update (NuGet,
+  GitHub Actions, imagens base Docker); avisa quando sai correção de CVE.
 - **Job `deploy`** (`needs: test`) — por ambiente conforme a branch (GitFlow):
   `develop → dev`, `release/* → staging`, `main → produção + tag`. O passo de
   deploy real é **placeholder** até haver ambiente provisionado.
