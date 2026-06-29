@@ -179,9 +179,11 @@ services:
     image: otel/opentelemetry-collector-contrib:0.111.0
     profiles: ["observability"]
     command: ["--config=/etc/otel/config.yaml"]
+    # Root para ler os arquivos de log dos containers (donos root, modo 0700).
+    user: "0:0"
     volumes:
       - ./docs/observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro
-      # Tail dos logs dos containers (stdout JSON) — read-only.
+      # Tail dos logs dos containers (stdout JSON do json-file driver) — read-only.
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     depends_on:
       opensearch:
