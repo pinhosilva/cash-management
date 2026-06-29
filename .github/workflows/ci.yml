@@ -1,14 +1,13 @@
-name: ci-cd
+name: CI
 
-# Uma esteira só, mas com jobs ISOLADOS por projeto (sln): se quebrar, dá pra ver
-# de imediato se foi o Entries, o Balance, o e2e ou a segurança. Os jobs `entries`,
-# `balance` e `security` rodam em paralelo; o `e2e` só roda se os dois serviços
-# passarem; o `deploy` depende de e2e + security (needs).
+# Validação: roda em todo PR (preparação pro merge) e em todo push nas branches de
+# integração. Jobs ISOLADOS por projeto — dá pra ver na hora se a falha é do Entries,
+# do Balance, do e2e ou da segurança. O CD (build + release) vive em cd.yml.
 on:
-  push:
-    branches: [main, develop, 'release/**', 'hotfix/**']
   pull_request:
     branches: [main, develop]
+  push:
+    branches: [main, develop, 'release/**', 'hotfix/**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -108,47 +107,3 @@ jobs:
       - name: Derruba a stack
         if: always()
         run: docker compose down -v
-
-  deploy: # só sobe se TODOS os gates passaram, e só nas branches de ambiente (GitFlow)
-    needs: [e2e, security] # e2e já depende de entries+balance → deploy depende de tudo
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/') || github.ref == 'refs/heads/main')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # criar a tag + release notes na main
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # GitVersion precisa do histórico completo
-
-      - name: Setup GitVersion
-        uses: gittools/actions/gitversion/setup@v4
-        with:
-          versionSpec: '6.x'
-
-      - name: Calcula a versão (branch + commits semânticos)
-        id: gitversion
-        uses: gittools/actions/gitversion/execute@v4
-
-      # Deploy por ambiente conforme a branch (GitFlow). Placeholder: o passo real
-      # (push de imagem + apply no cluster) entra quando houver ambiente provisionado.
-      - name: Deploy por ambiente
-        run: |
-          case "${{ github.ref }}" in
-            refs/heads/develop)   echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → DEV (integração)" ;;
-            refs/heads/release/*) echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → STAGING (homologação)" ;;
-            refs/heads/main)      echo "Deploy ${{ steps.gitversion.outputs.majorMinorPatch }} → PRODUÇÃO" ;;
-          esac
-          echo "::notice::Deploy real ainda não provisionado — passo placeholder (§9.2)."
-
-      # Só a main estável gera a tag vX.Y.Z + release notes a partir dos commits.
-      - name: Tag + release notes (só na main)
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="v${{ steps.gitversion.outputs.majorMinorPatch }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag já existe — nada a fazer."
-          else
-            gh release create "$tag" --generate-notes --target "${{ github.sha }}"
-          fi

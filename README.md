@@ -284,36 +284,40 @@ na seção de Testes de [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## CI/CD (GitHub Actions)
 
-A esteira ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) é o
-**portão**, com **jobs isolados por projeto** — assim, quando algo quebra, dá pra
-ver de imediato se foi o Entries, o Balance, o e2e ou a segurança (desenho completo
-na [§9.2 do ARCHITECTURE](docs/ARCHITECTURE.md#92-esteira-de-cicd-github-actions)):
+Dois workflows separados — **CI** (validação) e **CD** (entrega) — desenho completo
+na [§9.2 do ARCHITECTURE](docs/ARCHITECTURE.md#92-esteira-de-cicd-github-actions).
 
+**[`ci.yml`](.github/workflows/ci.yml) — CI (roda em PR e em push)** com **jobs
+isolados por projeto** (quando quebra, dá pra ver de imediato qual é):
 - **`entries`** e **`balance`** — um job por solução (`*.sln`), cada um com **unit +
-  integração** (Testcontainers). Rodam **em paralelo** e isolam a falha por serviço.
-- **`security`** (cross-cutting, paralelo) — secret scan (**gitleaks**, com allowlist
-  dos segredos de dev), **SAST** (**CodeQL** C#) e dependências vulneráveis
-  (`dotnet list --vulnerable` + o `NuGetAudit` do build como gate duro).
-- **`e2e`** (`needs: entries, balance`) — sobe a stack do `docker compose` e roda a
-  pasta **Smoke** (**Newman**); inclui o scan das imagens (**Trivy**, report-only).
-- **`deploy`** (`needs: e2e, security`) — por ambiente conforme a branch (GitFlow):
-  `develop → dev`, `release/* → staging`, `main → produção + tag`. Passo de deploy
-  real é **placeholder** até haver ambiente provisionado.
+  integração** (Testcontainers). Em **paralelo**, isolam a falha por serviço.
+- **`security`** (cross-cutting, paralelo) — secret scan (**gitleaks**), **SAST**
+  (**CodeQL** C#) e dependências vulneráveis (`dotnet list --vulnerable` + `NuGetAudit`).
+- **`e2e`** (`needs: entries, balance`) — sobe a stack do `docker compose`, roda a
+  pasta **Smoke** (**Newman**) e o scan das imagens (**Trivy**, report-only).
+
+**[`cd.yml`](.github/workflows/cd.yml) — CD (roda SÓ em push develop/main/release,
+nunca em PR)**: build das imagens (sem publicar ainda), deploy por ambiente
+(placeholder) e **release por canal** — develop → `alpha`, release/* → `rc`
+(pre-release), main → estável. O **portão** entre CI e CD é a **branch protection**
+(o CI tem que estar verde pra mergear), já que `needs:` não cruza workflows.
+
 - **[`dependabot.yml`](.github/dependabot.yml)** — PRs automáticos de update (NuGet,
   GitHub Actions, imagens base Docker), com minor+patch agrupados e majors isolados.
 - **Versionamento** — [`GitVersion.yml`](GitVersion.yml) calcula o SemVer dos
-  **commits semânticos** (`feat` → minor, `fix` → patch, `!`/`BREAKING` → major);
-  a `main` cria a tag `vX.Y.Z` + release notes.
+  **commits semânticos** (`feat` → minor, `fix` → patch, `!`/`BREAKING` → major).
 
 ### Configuração no GitHub (uma vez, na UI — não dá para versionar)
 
 1. **Branch protection** em `main` **e** `develop` (*Settings → Branches → Add rule*):
    - *Require a pull request before merging* (com 1 review).
-   - *Require status checks to pass* → selecione os checks **`entries`**, **`balance`**, **`security`** e **`e2e`**.
+   - *Require status checks to pass* → selecione os checks do **CI**: **`entries`**,
+     **`balance`**, **`security`** e **`e2e`**. (É isto que **gateia** o CD: só
+     mergeia com o CI verde, então o que chega na develop/main já passou.)
    - (Recomendado) *Require branches to be up to date* e *Do not allow bypassing*.
-2. **Secrets/permissions** — o gate usa só o `GITHUB_TOKEN` automático (a esteira
-   já declara `permissions: contents: write` para a tag/release). Deploy real para
-   nuvem exigirá *secrets* próprios (registry, kubeconfig) quando o ambiente existir.
+2. **Secrets/permissions** — usa só o `GITHUB_TOKEN` automático (o `cd.yml` declara
+   `permissions: contents: write` para tags/releases). Deploy real para nuvem exigirá
+   *secrets* próprios (registry, kubeconfig) quando o ambiente existir.
 
 ---
 

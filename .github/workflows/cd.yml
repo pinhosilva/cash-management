@@ -1,0 +1,76 @@
+name: CD
+
+# Entrega: roda SÓ em push (merge) nas branches de ambiente — nunca em PR (por isso
+# nem aparece na validação do PR). A validação (CI) está em ci.yml.
+#
+# PORTÃO: como ci.yml e cd.yml são arquivos separados, NÃO há `needs:` entre eles.
+# O gate aqui é a BRANCH PROTECTION — o CI tem que estar verde pra mergear, então o
+# que chega na develop/main já passou. (Um gate explícito "espera o CI terminar"
+# usaria `workflow_run`; fica como evolução futura.)
+on:
+  push:
+    branches: [develop, main, 'release/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # criar tags/releases (alpha/rc/estável)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # GitVersion precisa do histórico completo
+
+      - name: Setup GitVersion
+        uses: gittools/actions/gitversion/setup@v4
+        with:
+          versionSpec: '6.x'
+
+      - name: Calcula a versão (branch + commits semânticos)
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v4
+
+      # CD — build do artefato (imagens dos dois serviços), SEM publicar. O push para
+      # um registry (ex.: GHCR) entra num próximo incremento.
+      - name: Build das imagens (sem publicar)
+        run: |
+          docker compose build entries-api balance-api
+          echo "::notice::Imagens construídas para ${{ steps.gitversion.outputs.fullSemVer }}. Push para registry: próximo passo."
+
+      # Deploy por ambiente conforme a branch (GitFlow). Placeholder: o passo real
+      # (push de imagem + apply no cluster) entra quando houver ambiente provisionado.
+      - name: Deploy por ambiente
+        run: |
+          case "${{ github.ref }}" in
+            refs/heads/develop)   echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → DEV (integração)" ;;
+            refs/heads/release/*) echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → STAGING (homologação)" ;;
+            refs/heads/main)      echo "Deploy ${{ steps.gitversion.outputs.majorMinorPatch }} → PRODUÇÃO" ;;
+          esac
+          echo "::notice::Deploy real ainda não provisionado — passo placeholder (§9.2)."
+
+      # Release por canal (GitFlow + SemVer): develop → alpha, release/* → rc (ambos
+      # pre-release), main → estável. Dá pra ver a versão evoluir
+      # (0.2.0-alpha.N → 0.2.0-rc.N → 0.2.0). É só GitHub Release — não exige ambiente.
+      - name: Release por canal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            tag="v${{ steps.gitversion.outputs.majorMinorPatch }}"   # estável: v0.2.0
+            flags=""
+          else
+            tag="v${{ steps.gitversion.outputs.fullSemVer }}"        # alpha/rc: v0.2.0-alpha.N / -rc.N
+            flags="--prerelease"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag já existe — nada a fazer."
+          else
+            gh release create "$tag" --generate-notes --target "${{ github.sha }}" $flags
+          fi
