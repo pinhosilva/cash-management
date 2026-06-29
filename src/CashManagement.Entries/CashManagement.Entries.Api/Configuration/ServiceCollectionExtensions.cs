@@ -5,6 +5,7 @@ using CashManagement.Entries.Api.Contracts;
 using CashManagement.Entries.Api.Correlation;
 using CashManagement.Entries.Application.Abstractions;
 using CashManagement.Entries.Application.Features.PostCredit;
+using CashManagement.Entries.Application.Features.PostDebit;
 using CashManagement.Entries.Application.Interfaces;
 using CashManagement.Entries.Domain.Persistence;
 using CashManagement.Entries.Infrastructure.Messaging;
@@ -38,6 +39,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler<PostCreditCommand, Guid>>(sp =>
             new IdempotentCommandHandler<PostCreditCommand>(
                 sp.GetRequiredService<PostCreditCommandHandler>(),
+                sp.GetRequiredService<IIdempotencyStore>(),
+                sp.GetRequiredService<IIdempotencyContext>()));
+
+        services.AddScoped<PostDebitCommandValidator>();
+        services.AddScoped<PostDebitCommandHandler>();
+        services.AddScoped<ICommandHandler<PostDebitCommand, Guid>>(sp =>
+            new IdempotentCommandHandler<PostDebitCommand>(
+                sp.GetRequiredService<PostDebitCommandHandler>(),
                 sp.GetRequiredService<IIdempotencyStore>(),
                 sp.GetRequiredService<IIdempotencyContext>()));
         return services;

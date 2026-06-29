@@ -49,6 +49,28 @@ public sealed class EntriesApiFixture : IAsyncLifetime
         return await db.Events.CountAsync(e => e.AggregateId == aggregateId);
     }
 
+    /// <summary>Tipo do evento gravado no event store para um agregado (ex.: <c>CreditPostedEvent</c>/<c>DebitPostedEvent</c>).</summary>
+    public async Task<string?> StoredEventTypeAsync(Guid aggregateId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EntriesDbContext>();
+        return await db.Events
+            .Where(e => e.AggregateId == aggregateId)
+            .Select(e => e.Type)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>Payload do envelope §4.3 gravado na outbox para um agregado — confere o contrato publicado.</summary>
+    public async Task<string?> OutboxPayloadAsync(Guid aggregateId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<EntriesDbContext>();
+        return await db.Outbox
+            .Where(m => m.AggregateId == aggregateId)
+            .Select(m => m.Payload)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task InitializeAsync()
     {
         await _sql.StartAsync();
