@@ -1,0 +1,16 @@
+# Configuração do gitleaks (scan de segredos no gate de CI).
+# Estende as regras padrão e libera APENAS os segredos de DEV intencionais
+# (não-produção) versionados no docker-compose.yml — segredo acidental novo
+# continua sendo barrado.
+title = "cash-management gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Segredos de desenvolvimento intencionais (compose local)"
+regexes = [
+  '''entries-dev-signing-key-please-change-32b\+''',
+  '''balance-dev-signing-key-please-change-32b\+''',
+  '''Cash_Management_Dev1!''',
+]
