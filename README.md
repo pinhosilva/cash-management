@@ -96,11 +96,15 @@ cash-management/
 ├── docs/
 │   ├── ARCHITECTURE.md          # Design Doc — domínio, requisitos, decisões, CI/CD, trade-offs
 │   ├── TASKS.md                 # Regras de uso de IA + backlog de tarefas (TDD)
+│   ├── observability/           # Config do OTel Collector (profile observability)
 │   └── postman/                 # Collection + environment para testar a API
 ├── src/
 │   ├── CashManagement.Entries/  # Serviço de Lançamentos (Clean Architecture + Event Sourcing)
+│   │   └── ...Api/Dockerfile    # Imagem multi-stage do Entries
 │   └── CashManagement.Balance/  # Serviço de Consolidado (projeção/read model — CQRS)
-└── docker-compose.yml           # Sobe os 2 serviços + SQL Server, MongoDB, Kafka
+│       └── ...Api/Dockerfile    # Imagem multi-stage do Balance
+├── .dockerignore                # Exclui bin/obj/.vs/etc. do contexto de build
+└── docker-compose.yml           # Sobe os 2 serviços + SQL Server, MongoDB, Kafka (+ profile observability)
 ```
 
 Cada serviço tem seu próprio README com a estrutura interna detalhada:
@@ -117,24 +121,71 @@ Compose instalados.
 ```bash
 git clone https://github.com/pinhosilva/cash-management.git
 cd cash-management
-docker-compose up --build
+docker compose up --build
 ```
 
-Um único comando sobe toda a infraestrutura (SQL Server, MongoDB, Kafka) e os
-dois serviços .NET. Portas, variáveis de ambiente e endpoints detalhados de
-cada serviço ficam documentados no README do respectivo serviço.
+Um único comando sobe toda a infraestrutura (SQL Server, MongoDB, Kafka em modo
+KRaft) e os dois serviços .NET. As infras têm **healthcheck** e os serviços só
+sobem (`depends_on: condition: service_healthy`) quando as dependências estão
+prontas. Os serviços também expõem healthcheck no compose via `/health/ready`.
 
-> ℹ️ A imagem desta seção será complementada com portas e exemplos de
-> `curl` assim que o `docker-compose.yml` for adicionado (fase de código).
+Para derrubar e limpar a stack:
+
+```bash
+docker compose down          # remove containers e rede
+docker compose down -v       # idem + apaga os volumes (zera SQL/Mongo/Kafka)
+```
+
+### Portas
+
+
+| Serviço / infra        | Porta no host | Uso                                                                        |
+| ----------------------- | ------------- | -------------------------------------------------------------------------- |
+| **entries-api**         | `8080`        | `POST /entries`, `GET /dev/token` (escrita), `/health/*`, `/swagger`       |
+| **balance-api**         | `8081`        | `GET /balances/{date}`, `GET /dev/token` (leitura), `/health/*`, `/swagger`|
+| sqlserver               | `1433`        | Event Store (Entries)                                                       |
+| mongodb                 | `27017`       | Read Model (Balance)                                                        |
+| kafka                   | `9092`        | Mensageria (KRaft, sem Zookeeper)                                           |
+| opensearch              | `9200`        | Logs (profile `observability`)                                             |
+| opensearch-dashboards   | `5601`        | UI de logs (profile `observability`)                                      |
 
 ### Endpoints principais
 
 
 | Serviço | Método | Rota                              | Descrição                                                      |
 | -------- | ------- | --------------------------------- | ---------------------------------------------------------------- |
-| Entries  | `POST`  | `/entries`                        | Registra um lançamento (débito/crédito). Requer JWT.          |
-| Balance  | `GET`   | `/balances/{date}`                | Retorna o saldo consolidado de uma data. Requer JWT.             |
+| Entries  | `POST`  | `/entries`                        | Registra um lançamento (crédito). Requer JWT `entries:write`.   |
+| Entries  | `GET`   | `/dev/token`                      | Token de dev com scope `entries:write` (404 em produção).      |
+| Balance  | `GET`   | `/balances/{date}`                | Retorna o saldo consolidado de uma data. Requer JWT `balances:read`. |
+| Balance  | `GET`   | `/dev/token`                      | Token de dev com scope `balances:read` (404 em produção).      |
 | Ambos    | `GET`   | `/health/live` · `/health/ready` | *Liveness*/*readiness* para orquestração (sem autenticação). |
+
+### Exemplos com `curl`
+
+Dois tokens distintos: o `POST /entries` exige o token de **escrita** do Entries
+e o `GET /balances/{date}` exige o token de **leitura** do Balance. Cada serviço
+valida o token assinado pela **sua própria** chave (audiences/chaves distintas).
+O `/dev/token` é um **GET** e devolve `{ "access_token": "...", "token_type": "Bearer" }`.
+
+```bash
+# 1) Token de escrita (Entries) e registro de um crédito
+WRITE_TOKEN=$(curl -s http://localhost:8080/dev/token | jq -r .access_token)
+
+curl -s -X POST http://localhost:8080/entries \
+  -H "Authorization: Bearer $WRITE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "X-Correlation-Id: $(uuidgen)" \
+  -d '{ "type": "Credit", "amount": 123.45, "occurredAt": "2026-06-26T10:00:00Z" }'
+
+# 2) Token de leitura (Balance) e consulta do saldo do dia
+READ_TOKEN=$(curl -s http://localhost:8081/dev/token | jq -r .access_token)
+
+curl -s http://localhost:8081/balances/2026-06-26 \
+  -H "Authorization: Bearer $READ_TOKEN"
+# A projeção é assíncrona (consistência eventual): se o saldo ainda não refletiu
+# o crédito, repita a consulta após ~1-2s.
+```
 
 ---
 
@@ -152,10 +203,74 @@ explorar — e ficam **fora** do gate de deploy.
 
 1. Importe `CashManagement.postman_collection.json` e
    `CashManagement.postman_environment.json`.
-2. Selecione o environment **Cash Management — Local** e ajuste
-   `entries_url` / `balance_url` se as portas mudarem.
-3. Rode **Auth → Obter token de dev** para popular o `token`; depois execute os
-   demais cenários (o `entryId` é encadeado automaticamente entre as chamadas).
+2. Selecione o environment **Cash Management — Local** (`entries_url`/`balance_url`
+   já apontam para `8080`/`8081`).
+3. O fluxo do `Smoke` é o **dois tokens**: obtém o token de **escrita** no Entries
+   → registra o crédito → obtém o token de **leitura** no Balance → consulta o
+   saldo (com **polling**) → request sem token retorna `401`.
+
+### Smoke via Newman (a prova da fatia)
+
+Com a stack no ar (`docker compose up --build`), rode **só a pasta `Smoke`**:
+
+```bash
+# Local (Newman instalado via npm)
+newman run docs/postman/CashManagement.postman_collection.json \
+  -e docs/postman/CashManagement.postman_environment.json \
+  --folder "Smoke" --delay-request 1000
+
+# Sem instalar nada (imagem oficial, na rede do compose)
+docker run --rm --network cash-management_default \
+  -v "$PWD/docs/postman:/etc/newman" postman/newman:alpine \
+  run CashManagement.postman_collection.json \
+  -e CashManagement.postman_environment.json \
+  --folder "Smoke" --delay-request 1000 \
+  --env-var entries_url=http://entries-api:8080 \
+  --env-var balance_url=http://balance-api:8081
+```
+
+> O `--delay-request 1000` é obrigatório: dá espaço entre os *polls* do saldo
+> para a projeção assíncrona (consistência eventual) refletir o crédito.
+
+---
+
+## Observabilidade (profile opcional)
+
+A stack de logs centralizados sobe **sob demanda**, para não pesar a subida
+básica (§9.1):
+
+```bash
+docker compose --profile observability up --build
+```
+
+Isso adiciona **OpenSearch** (`9200`), **OpenSearch Dashboards** (`5601`) e um
+**OpenTelemetry Collector**. O Collector **não instrumenta o código** dos
+serviços (traces/métricas OTel são fatia futura — §8.2): ele apenas *taila* os
+logs de stdout (JSON estruturado do Serilog) dos containers e os exporta para o
+OpenSearch, num índice `cash-management-logs`, pesquisável por `correlationId`.
+
+Os campos do log estruturado do Serilog (incl. `correlationId`, `service`,
+`component`) ficam sob `attributes.*` no documento do OpenSearch. Verificação
+rápida (após gerar tráfego, ex.: rodar o `Smoke` ou um `POST /entries`):
+
+```bash
+# Conta documentos de log ingeridos
+curl -s "http://localhost:9200/cash-management-logs/_count"
+
+# Quais serviços já indexaram logs
+curl -s "http://localhost:9200/cash-management-logs/_search" \
+  -H 'Content-Type: application/json' \
+  -d '{"size":0,"aggs":{"svc":{"terms":{"field":"attributes.service.keyword"}}}}'
+
+# Tudo de uma requisição pelo correlationId (cruza os dois serviços).
+# Use o mesmo X-Correlation-Id que você enviou no POST /entries.
+curl -s "http://localhost:9200/cash-management-logs/_search" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":{"match":{"attributes.correlationId":"<seu-correlation-id>"}}}'
+```
+
+Pelos Dashboards (`http://localhost:5601` → *Discover*), crie um index pattern
+`cash-management-logs*` e filtre por `attributes.correlationId`.
 
 ---
 
