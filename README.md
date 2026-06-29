@@ -284,11 +284,12 @@ na seção de Testes de [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## CI/CD (GitHub Actions)
 
-Dois workflows separados — **CI** (validação) e **CD** (entrega) — desenho completo
-na [§9.2 do ARCHITECTURE](docs/ARCHITECTURE.md#92-esteira-de-cicd-github-actions).
+Um workflow só ([`ci-cd.yml`](.github/workflows/ci-cd.yml)) — CI + CD juntos, para
+o `deploy` poder gatear no CI via `needs:` (que **não** cruza arquivos). Desenho
+completo na [§9.2 do ARCHITECTURE](docs/ARCHITECTURE.md#92-esteira-de-cicd-github-actions).
 
-**[`ci.yml`](.github/workflows/ci.yml) — CI (roda em PR e em push)** com **jobs
-isolados por projeto** (quando quebra, dá pra ver de imediato qual é):
+**CI (roda em PR e em push)** com **jobs isolados por projeto** (quando quebra, dá
+pra ver de imediato qual é):
 - **`entries`** e **`balance`** — um job por solução (`*.sln`), cada um com **unit +
   integração** (Testcontainers). Em **paralelo**, isolam a falha por serviço.
 - **`security`** (cross-cutting, paralelo) — secret scan (**gitleaks**), **SAST**
@@ -296,11 +297,11 @@ isolados por projeto** (quando quebra, dá pra ver de imediato qual é):
 - **`e2e`** (`needs: entries, balance`) — sobe a stack do `docker compose`, roda a
   pasta **Smoke** (**Newman**) e o scan das imagens (**Trivy**, report-only).
 
-**[`cd.yml`](.github/workflows/cd.yml) — CD (roda SÓ em push develop/main/release,
-nunca em PR)**: build das imagens (sem publicar ainda), deploy por ambiente
-(placeholder) e **release por canal** — develop → `alpha`, release/* → `rc`
-(pre-release), main → estável. O **portão** entre CI e CD é a **branch protection**
-(o CI tem que estar verde pra mergear), já que `needs:` não cruza workflows.
+**CD — `deploy`** (`needs: e2e, security`; `if` push em develop/main/release, nunca
+em PR): build das imagens (sem publicar ainda), deploy por ambiente (placeholder) e
+**release por canal** — develop → `alpha`, release/* → `rc` (pre-release), main →
+estável. Como está no **mesmo workflow**, o `deploy` só roda **depois** que o CI
+inteiro passou (gate por `needs`); em PR ele aparece **skipped** (não executa).
 
 - **[`dependabot.yml`](.github/dependabot.yml)** — PRs automáticos de update (NuGet,
   GitHub Actions, imagens base Docker), com minor+patch agrupados e majors isolados.
@@ -311,11 +312,11 @@ nunca em PR)**: build das imagens (sem publicar ainda), deploy por ambiente
 
 1. **Branch protection** em `main` **e** `develop` (*Settings → Branches → Add rule*):
    - *Require a pull request before merging* (com 1 review).
-   - *Require status checks to pass* → selecione os checks do **CI**: **`entries`**,
-     **`balance`**, **`security`** e **`e2e`**. (É isto que **gateia** o CD: só
-     mergeia com o CI verde, então o que chega na develop/main já passou.)
+   - *Require status checks to pass* → selecione os checks do CI: **`entries`**,
+     **`balance`**, **`security`** e **`e2e`** (gateiam o **merge**). O `deploy` em si
+     é gateado pelo `needs: [e2e, security]` dentro do workflow.
    - (Recomendado) *Require branches to be up to date* e *Do not allow bypassing*.
-2. **Secrets/permissions** — usa só o `GITHUB_TOKEN` automático (o `cd.yml` declara
+2. **Secrets/permissions** — usa só o `GITHUB_TOKEN` automático (o job `deploy` declara
    `permissions: contents: write` para tags/releases). Deploy real para nuvem exigirá
    *secrets* próprios (registry, kubeconfig) quando o ambiente existir.
 

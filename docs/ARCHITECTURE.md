@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.15 (ver Histórico de Revisões no fim do documento)                                                                                             |
+| **Versão**              | 1.0.16 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1379,16 +1379,15 @@ responde 404**) emite um token válido com os *scopes* necessários (`entries:wr
 
 ### 9.2 Esteira de CI/CD (GitHub Actions)
 
-> Entregue na **T12**, hoje em **dois workflows**: [`ci.yml`](../.github/workflows/ci.yml)
-> (validação) e [`cd.yml`](../.github/workflows/cd.yml) (entrega) + [`GitVersion.yml`](../GitVersion.yml).
-> O sketch abaixo (um job `test`) é ilustrativo. O **CI** usa **jobs isolados por
-> projeto** — `entries` e `balance` (unit + integração), `security` (cross-cutting)
-> em paralelo, `e2e` (`needs: entries, balance`) — e roda em **PR e push**. O **CD**
-> roda **só em push** nas branches de ambiente (nunca em PR): build das imagens,
-> deploy por ambiente (placeholder) e **release por canal** (develop→alpha,
-> release/*→rc, main→estável). Como `needs:` não cruza workflows, o **portão CI→CD é
-> a branch protection** (só mergeia com o CI verde). *Branch protection*/secrets na
-> UI do GitHub (ver README).
+> Entregue na **T12** em [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml)
+> + [`GitVersion.yml`](../GitVersion.yml). O sketch abaixo (um job `test`) é
+> ilustrativo. O workflow real usa **jobs isolados por projeto** — `entries` e
+> `balance` (unit + integração), `security` (cross-cutting) em paralelo, `e2e`
+> (`needs: entries, balance`) — e o **`deploy`** (`needs: e2e, security`; só em push
+> nas branches de ambiente): build das imagens, deploy por ambiente (placeholder) e
+> **release por canal** (develop→alpha, release/*→rc, main→estável). CI e CD ficam no
+> **mesmo workflow** justamente para o `deploy` gatear no CI via `needs:` (que não
+> cruza arquivos). *Branch protection*/secrets na UI do GitHub (ver README).
 
 **Princípio — o teste é o portão:** nada sobe sem os testes passarem. O job de
 `deploy` depende do job de `test` (`needs: test`); qualquer gate vermelho
@@ -1672,6 +1671,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.16 | 2026-06-29 | CI/CD **reunificados num workflow** (`ci-cd.yml`): o split em `ci.yml`/`cd.yml` deixava o `deploy` rodar em paralelo ao CI no push (sem `needs` cruzando arquivos). Voltando a um arquivo, o `deploy` gateia em `needs: [e2e, security]` — só roda se o CI passar. Em PR aparece skipped. |
 | 1.0.15 | 2026-06-29 | CI/CD separados em **dois workflows**: `ci.yml` (validação — PR + push, jobs por projeto) e `cd.yml` (entrega — só push develop/main/release). O CD ganha **build das imagens** (sem publicar) e **release por canal** (develop→alpha, release/*→rc, main→estável). Portão CI→CD pela **branch protection** (`needs:` não cruza workflows). |
 | 1.0.14 | 2026-06-29 | CI: esteira reestruturada em **jobs isolados por projeto** — `entries` e `balance` (unit + integração) em paralelo, `security` cross-cutting, `e2e` (`needs` os dois serviços) e `deploy` (`needs` e2e + security). Isola a falha por serviço. Também: GitVersion 6 / gittools v4 / CodeQL v4, Trivy report-only, grouping do Dependabot. |
 | 1.0.13 | 2026-06-28 | CI: scans de **segurança** na mesma pipeline (job `test`) — CodeQL (SAST C#), gitleaks (secret scan, com allowlist dos segredos de dev), `dotnet list --vulnerable` (além do `NuGetAudit` do build) e Trivy (imagens). Permissões mínimas por job + `dependabot.yml` (NuGet/Actions/Docker). |
