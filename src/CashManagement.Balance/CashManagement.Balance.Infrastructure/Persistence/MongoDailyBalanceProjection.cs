@@ -20,7 +20,7 @@ public sealed class MongoDailyBalanceProjection : IDailyBalanceProjection
     public MongoDailyBalanceProjection(IMongoCollection<DailyBalanceDocument> collection) =>
         _collection = collection;
 
-    public async Task<bool> ApplyCreditAsync(string eventId, DateOnly date, decimal amount, CancellationToken cancellationToken = default)
+    public async Task<bool> ApplyAsync(string eventId, DateOnly date, decimal amount, EntryKind kind, CancellationToken cancellationToken = default)
     {
         var key = date.ToString("yyyy-MM-dd");
 
@@ -31,11 +31,21 @@ public sealed class MongoDailyBalanceProjection : IDailyBalanceProjection
             Builders<DailyBalanceDocument>.Filter.Not(
                 Builders<DailyBalanceDocument>.Filter.AnyEq(d => d.ProcessedEventIds, eventId)));
 
-        var update = Builders<DailyBalanceDocument>.Update
-            .Inc(d => d.TotalCredits, amount)
-            .Inc(d => d.Balance, amount)
-            .SetOnInsert(d => d.TotalDebits, 0m)
-            .Push(d => d.ProcessedEventIds, eventId);
+        // Crédito soma; débito subtrai. O ajuste do total (do lado certo) e do balance
+        // entram no MESMO update condicional do crédito — um único $inc por campo,
+        // mantendo a dedup atômica (sem dual-write). balance = totalCredits - totalDebits.
+        var builder = Builders<DailyBalanceDocument>.Update;
+        var update = kind == EntryKind.Debit
+            ? builder
+                .Inc(d => d.TotalDebits, amount)
+                .Inc(d => d.Balance, -amount)
+                .SetOnInsert(d => d.TotalCredits, 0m)
+                .Push(d => d.ProcessedEventIds, eventId)
+            : builder
+                .Inc(d => d.TotalCredits, amount)
+                .Inc(d => d.Balance, amount)
+                .SetOnInsert(d => d.TotalDebits, 0m)
+                .Push(d => d.ProcessedEventIds, eventId);
 
         try
         {
