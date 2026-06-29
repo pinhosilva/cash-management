@@ -1,8 +1,8 @@
-name: CI
+name: ci-cd
 
-# Validação: roda em todo PR (preparação pro merge) e em todo push nas branches de
-# integração. Jobs ISOLADOS por projeto — dá pra ver na hora se a falha é do Entries,
-# do Balance, do e2e ou da segurança. O CD (build + release) vive em cd.yml.
+# CI + CD num workflow só, para o `deploy` poder gatear no CI via `needs:` (que NÃO
+# cruza arquivos). Jobs de CI isolados por projeto; `deploy` só roda em push nas
+# branches de ambiente E só depois de e2e + security passarem.
 on:
   pull_request:
     branches: [main, develop]
@@ -89,10 +89,8 @@ jobs:
           -e docs/postman/CashManagement.postman_environment.json
           --folder "Smoke" --delay-request 1000
 
-      # Report-only: lista CVEs das imagens mas NÃO bloqueia. Roda o Trivy pela
-      # imagem Docker oficial (pull confiável, sem `uses:`/install a resolver) +
-      # continue-on-error (nunca derruba o e2e). Para virar gate duro, tire o
-      # `continue-on-error` e o `|| true`, e some `--exit-code 1`.
+      # Report-only: lista CVEs das imagens mas NÃO bloqueia. Roda o Trivy pela imagem
+      # Docker oficial (sem `uses:`/install a resolver) + continue-on-error.
       - name: 'Scan das imagens (Trivy, report-only)'
         continue-on-error: true
         run: |
@@ -107,3 +105,60 @@ jobs:
       - name: Derruba a stack
         if: always()
         run: docker compose down -v
+
+  deploy: # ── CD: só em push nas branches de ambiente, E só se o CI passou (needs) ──
+    needs: [e2e, security] # e2e já depende de entries+balance → deploy depende de tudo
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/') || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # criar tags/releases (alpha/rc/estável)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # GitVersion precisa do histórico completo
+
+      - name: Setup GitVersion
+        uses: gittools/actions/gitversion/setup@v4
+        with:
+          versionSpec: '6.x'
+
+      - name: Calcula a versão (branch + commits semânticos)
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v4
+
+      # CD — build do artefato (imagens dos dois serviços), SEM publicar. O push para
+      # um registry (ex.: GHCR) entra num próximo incremento.
+      - name: Build das imagens (sem publicar)
+        run: |
+          docker compose build entries-api balance-api
+          echo "::notice::Imagens construídas para ${{ steps.gitversion.outputs.fullSemVer }}. Push para registry: próximo passo."
+
+      # Deploy por ambiente conforme a branch (GitFlow). Placeholder: o passo real
+      # (push de imagem + apply no cluster) entra quando houver ambiente provisionado.
+      - name: Deploy por ambiente
+        run: |
+          case "${{ github.ref }}" in
+            refs/heads/develop)   echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → DEV (integração)" ;;
+            refs/heads/release/*) echo "Deploy ${{ steps.gitversion.outputs.fullSemVer }} → STAGING (homologação)" ;;
+            refs/heads/main)      echo "Deploy ${{ steps.gitversion.outputs.majorMinorPatch }} → PRODUÇÃO" ;;
+          esac
+          echo "::notice::Deploy real ainda não provisionado — passo placeholder (§9.2)."
+
+      # Release por canal (GitFlow + SemVer): develop → alpha, release/* → rc (ambos
+      # pre-release), main → estável. Dá pra ver a versão evoluir. Só GitHub Release.
+      - name: Release por canal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            tag="v${{ steps.gitversion.outputs.majorMinorPatch }}"   # estável: v0.2.0
+            flags=""
+          else
+            tag="v${{ steps.gitversion.outputs.fullSemVer }}"        # alpha/rc: v0.2.0-alpha.N / -rc.N
+            flags="--prerelease"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag já existe — nada a fazer."
+          else
+            gh release create "$tag" --generate-notes --target "${{ github.sha }}" $flags
+          fi
