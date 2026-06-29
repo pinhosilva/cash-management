@@ -129,6 +129,24 @@ KRaft) e os dois serviços .NET. As infras têm **healthcheck** e os serviços s
 sobem (`depends_on: condition: service_healthy`) quando as dependências estão
 prontas. Os serviços também expõem healthcheck no compose via `/health/ready`.
 
+### Modos de subida (`--profile`)
+
+A subida básica é **leve**; as ferramentas de inspeção (UI/observabilidade) ficam em
+**profiles opcionais**, pra não pesar. Combine conforme o que quer ver:
+
+| Comando | O que sobe | UI no navegador |
+| --- | --- | --- |
+| `docker compose up --build` | **base** — 2 serviços + SQL + Mongo + Kafka | Swagger `8080`/`8081` |
+| `docker compose --profile tools up --build` | base + **Kafka UI** | + `:8088` |
+| `docker compose --profile observability up --build` | base + **OpenSearch + Dashboards + OTel** | + `:5601` |
+| `docker compose --profile tools --profile observability up --build` | **tudo** (app + UIs + observabilidade) | `:8088` + `:5601` |
+
+> **Por que profiles?** O OpenSearch é **pesado** (RAM); deixá-lo opt-in mantém o `up`
+> básico leve e rápido (§9.1). O Kafka UI é leve, mas também fica em profile (`tools`)
+> pra você ligar só quando quiser inspecionar os eventos. As **rotas** ficam
+> documentadas e testáveis no **Swagger** de cada serviço (`/swagger`) e na collection
+> **Postman** (abaixo).
+
 Para derrubar e limpar a stack:
 
 ```bash
@@ -231,6 +249,28 @@ docker run --rm --network cash-management_default \
 
 > O `--delay-request 1000` é obrigatório: dá espaço entre os *polls* do saldo
 > para a projeção assíncrona (consistência eventual) refletir o crédito.
+
+---
+
+## Validar tudo (passo a passo)
+
+**1. Automático — a prova da fatia.** Com a stack no ar, rode o `Smoke` via Newman
+(seção acima): token → crédito → saldo (com polling) → `401`. Verde = fluxo OK.
+
+**2. Visual — ver acontecendo.** Suba com os dois profiles
+(`docker compose --profile tools --profile observability up --build`) e siga:
+
+| # | Onde | Faça | Veja |
+| --- | --- | --- | --- |
+| 1 | **Swagger Entries** — http://localhost:8080/swagger | `GET /dev/token` → copie o `access_token` → `POST /entries` (Authorize com o Bearer) | `201 Created` + `{ id }` |
+| 2 | **Kafka UI** — http://localhost:8088 | Topics → `cash.management.entries.events` → **Messages** | o **`CreditPostedEvent`** (envelope §4.3 no corpo) |
+| 3 | **Kafka UI** — http://localhost:8088 | **Consumers** | o **consumer lag** do Balance indo a `0` (ele consumiu) |
+| 4 | **Swagger Balance** — http://localhost:8081/swagger | `GET /dev/token` → `GET /balances/{data de hoje}` | o **saldo** refletindo o crédito (eventual; repita se preciso) |
+| 5 | **OpenSearch Dashboards** — http://localhost:5601 | *Discover* (index `cash-management-logs*`) → filtre por `attributes.correlationId` | os **logs dos dois serviços** na mesma requisição |
+
+Isso exercita o ciclo inteiro — **`POST` → Event Sourcing + Outbox → Kafka →
+projeção → `GET`** — e você **vê** cada elo: o evento no Kafka UI e os logs
+correlacionados (ponta a ponta) no Dashboards.
 
 ---
 

@@ -1,7 +1,9 @@
 # Orquestração local da Fatia 1 (crédito ponta-a-ponta) — T11.
 #
 #   Stack básica (infra + 2 serviços):   docker compose up --build
+#   Com Kafka UI (ver eventos):          docker compose --profile tools up --build
 #   Com observabilidade (OpenSearch):    docker compose --profile observability up --build
+#   Tudo:                                docker compose --profile tools --profile observability up --build
 #
 # Portas publicadas no host:
 #   entries-api          -> 8080   (POST /entries, GET /dev/token [escrita], /health/*, /swagger)
@@ -9,6 +11,7 @@
 #   sqlserver            -> 1433
 #   mongodb              -> 27017
 #   kafka                -> 9092 (host) / 29092 (interno entre containers)
+#   kafka-ui             -> 8088   (profile tools)
 #   opensearch           -> 9200   (profile observability)
 #   opensearch-dashboards-> 5601   (profile observability)
 #
