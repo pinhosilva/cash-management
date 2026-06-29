@@ -154,7 +154,7 @@ docker compose down -v       # idem + apaga os volumes (zera SQL/Mongo/Kafka)
 
 | Serviço | Método | Rota                              | Descrição                                                      |
 | -------- | ------- | --------------------------------- | ---------------------------------------------------------------- |
-| Entries  | `POST`  | `/entries`                        | Registra um lançamento (crédito). Requer JWT `entries:write`.   |
+| Entries  | `POST`  | `/entries`                        | Registra um lançamento — **crédito ou débito** (campo `type`, default `Credit`). Requer JWT `entries:write`. |
 | Entries  | `GET`   | `/dev/token`                      | Token de dev com scope `entries:write` (404 em produção).      |
 | Balance  | `GET`   | `/balances/{date}`                | Retorna o saldo consolidado de uma data. Requer JWT `balances:read`. |
 | Balance  | `GET`   | `/dev/token`                      | Token de dev com scope `balances:read` (404 em produção).      |
@@ -177,6 +177,9 @@ curl -s -X POST http://localhost:8080/entries \
   -H "Idempotency-Key: $(uuidgen)" \
   -H "X-Correlation-Id: $(uuidgen)" \
   -d '{ "type": "Credit", "amount": 123.45, "occurredAt": "2026-06-26T10:00:00Z" }'
+# Débito é o mesmo endpoint, com "type": "Debit" — subtrai do saldo do dia:
+#   -d '{ "type": "Debit", "amount": 23.45, "occurredAt": "2026-06-26T10:00:00Z" }'
+# (omitir o "type" registra um crédito — default retrocompatível.)
 
 # 2) Token de leitura (Balance) e consulta do saldo do dia
 READ_TOKEN=$(curl -s http://localhost:8081/dev/token | jq -r .access_token)
