@@ -23,7 +23,9 @@ services:
   # Infraestrutura
   # ---------------------------------------------------------------------------
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    # CU fixa (não `2022-latest`): build reproduzível; o `latest` recente crasha no
+    # startup em alguns runners ("CoInitializeSecurity failure"). Mantém o tools18.
+    image: mcr.microsoft.com/mssql/server:2022-CU12-ubuntu-22.04
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "Cash_Management_Dev1!"

@@ -9,8 +9,11 @@ namespace CashManagement.Entries.IntegrationTests.Persistence;
 /// </summary>
 public sealed class MsSqlContainerFixture : IAsyncLifetime
 {
+    // CU fixa (não `2022-latest`): o build mais novo do `latest` crasha no startup
+    // em runners do GitHub Actions com "CoInitializeSecurity failure". Pinar também
+    // é build reproduzível. Mantém o tools18, compatível com o wait do Testcontainers.
     private readonly MsSqlContainer _container =
-        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
+        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-CU12-ubuntu-22.04").Build();
 
     public string ConnectionString => _container.GetConnectionString();
 
