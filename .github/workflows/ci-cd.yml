@@ -112,6 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # criar tags/releases (alpha/rc/estável)
+      packages: write # publicar as imagens no GHCR
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,12 +127,35 @@ jobs:
         id: gitversion
         uses: gittools/actions/gitversion/execute@v4
 
-      # CD — build do artefato (imagens dos dois serviços), SEM publicar. O push para
-      # um registry (ex.: GHCR) entra num próximo incremento.
-      - name: Build das imagens (sem publicar)
+      - name: Login no GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # CD — build do artefato e PUSH pro GHCR, versionado. Mesma imagem que será
+      # promovida pelos ambientes (build once). Tags: a versão SemVer + o short sha;
+      # na main, também majorMinorPatch + latest.
+      - name: Build + push das imagens (GHCR)
+        env:
+          VER: ${{ steps.gitversion.outputs.fullSemVer }}
+          MMP: ${{ steps.gitversion.outputs.majorMinorPatch }}
+          SHA: ${{ steps.gitversion.outputs.shortSha }}
         run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker compose build entries-api balance-api
-          echo "::notice::Imagens construídas para ${{ steps.gitversion.outputs.fullSemVer }}. Push para registry: próximo passo."
+          for svc in entries-api balance-api; do
+            local_img=$(docker compose images -q "$svc")
+            remote="ghcr.io/${owner}/cash-management-${svc}"
+            docker tag "$local_img" "${remote}:${VER}"
+            docker tag "$local_img" "${remote}:${SHA}"
+            docker push "${remote}:${VER}"
+            docker push "${remote}:${SHA}"
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              docker tag "$local_img" "${remote}:${MMP}"
+              docker tag "$local_img" "${remote}:latest"
+              docker push "${remote}:${MMP}"
+              docker push "${remote}:latest"
+            fi
+            echo "::notice::Publicado ${remote}:${VER}"
+          done
 
       # Deploy por ambiente conforme a branch (GitFlow). Placeholder: o passo real
       # (push de imagem + apply no cluster) entra quando houver ambiente provisionado.
