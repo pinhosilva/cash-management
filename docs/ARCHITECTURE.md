@@ -4,7 +4,7 @@
 |                         |                                                                                                                                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**              | Proposto                                                                                                                                            |
-| **Versão**              | 1.0.10 (ver Histórico de Revisões no fim do documento)                                                                                             |
+| **Versão**              | 1.0.11 (ver Histórico de Revisões no fim do documento)                                                                                             |
 | **Autor**               | Rafael Pinho                                                                                                                                        |
 | **Data**                | 2026-06-25                                                                                                                                          |
 | **Ferramenta de apoio** | Claude (Anthropic), usado como copiloto na redação deste documento e nas decisões de arquitetura; também apoiará a implementação do código. |
@@ -1345,15 +1345,22 @@ flowchart LR
 
 A solução é containerizada via **Docker e docker-compose**, subindo em um
 único comando todas as dependências de infraestrutura (SQL Server, MongoDB,
-Kafka + Zookeeper) e os dois serviços .NET.
+Kafka em **modo KRaft** — sem Zookeeper) e os dois serviços .NET.
 
 ```bash
 docker-compose up --build
 ```
 
-O stack de **observabilidade** (OpenSearch + Dashboards + Data Prepper + OTel
-Collector, e opcionalmente Prometheus + Grafana) fica em um **profile opcional**
-do compose, para não pesar a subida básica — habilitado sob demanda:
+O stack de **observabilidade** (OpenSearch + Dashboards + OTel Collector) fica em
+um **profile opcional** do compose, para não pesar a subida básica — habilitado
+sob demanda:
+
+> **Nesta fatia** o profile entrega o **pipeline de logs**: o OTel Collector
+> coleta o stdout JSON (Serilog, com `correlationId`) dos dois serviços e indexa
+> no OpenSearch, pesquisável por requisição. A instrumentação de **traces/métricas**
+> nos serviços e o **Data Prepper** (Trace Analytics) entram com a fatia de
+> observabilidade completa (§8.2); até lá, o exporter do Collector escreve direto
+> no OpenSearch.
 
 ```bash
 docker-compose --profile observability up --build
@@ -1651,6 +1658,7 @@ alteração no documento **incrementa a versão** (campo `Versão` no cabeçalho
 
 | Versão | Data | Descrição |
 |---|---|---|
+| 1.0.11 | 2026-06-28 | T11 (orquestração): `docker-compose` sobe SQL + Mongo + **Kafka em KRaft** (sem Zookeeper) + os 2 serviços, validado pelo smoke (Newman, 2 tokens). Profile `observability` entrega o **pipeline de logs** (OTel Collector → OpenSearch); traces/métricas + Data Prepper ficam para a observabilidade completa (§8.2/§9.1). |
 | 1.0.10 | 2026-06-28 | T10 (API do Balance): readiness de **ambos** os serviços passa a cobrir **só o banco** (Entries: SQL; Balance: Mongo) — o Kafka não gateia nenhum dos dois e aparece como visibilidade em `/health` (§7.1), coerência com a decisão do Entries (v1.0.9). |
 | 1.0.9 | 2026-06-27 | Estrutura da Api: *composition root* (`HostingExtensions`) enxuga o `Program.cs`; health checks em extensão dedicada com endpoint `/health` (SQL + Kafka, **visibilidade sem gatear**) além de `/health/live` e `/health/ready` (§7.1) — o Kafka tem um `IHealthCheck` próprio e segue fora do readiness. |
 | 1.0.8 | 2026-06-27 | Revisão pós-T08: dedup de idempotência movida para um *behavior* (`IdempotentCommandHandler`) em volta do `Send` (§5.10) — controller fino; `OccurredAt` normalizado para **UTC** na borda antes do event store; `/dev/token` responde **404** em produção e a chave JWT é **obrigatória fora de Development** (§8.1/§9.1); readiness do Entries cobre **só SQL** nesta fatia (§7.1). |
