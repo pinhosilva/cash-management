@@ -146,8 +146,9 @@ docker compose down -v       # idem + apaga os volumes (zera SQL/Mongo/Kafka)
 | sqlserver               | `1433`        | Event Store (Entries)                                                       |
 | mongodb                 | `27017`       | Read Model (Balance)                                                        |
 | kafka                   | `9092`        | Mensageria (KRaft, sem Zookeeper)                                           |
+| **kafka-ui**            | `8088`        | **UI dos tópicos/eventos** (profile `tools`) — http://localhost:8088        |
 | opensearch              | `9200`        | Logs (profile `observability`)                                             |
-| opensearch-dashboards   | `5601`        | UI de logs (profile `observability`)                                      |
+| opensearch-dashboards   | `5601`        | UI de logs / OTel (profile `observability`) — http://localhost:5601         |
 
 ### Endpoints principais
 
@@ -271,6 +272,25 @@ curl -s "http://localhost:9200/cash-management-logs/_search" \
 
 Pelos Dashboards (`http://localhost:5601` → *Discover*), crie um index pattern
 `cash-management-logs*` e filtre por `attributes.correlationId`.
+
+---
+
+## Ferramentas de dev (profile `tools`)
+
+Pra **inspecionar o sistema rodando** pelo navegador, sem pesar a subida básica:
+
+```bash
+docker compose --profile tools up --build                            # app + Kafka UI
+docker compose --profile tools --profile observability up --build    # + OpenSearch/OTel
+```
+
+- **Kafka UI** → http://localhost:8088 — vê os **tópicos, mensagens e consumer lag**.
+  Depois de um `POST /entries`, o evento aparece no tópico
+  `cash.management.entries.events` (o envelope §4.3 no corpo), e dá pra acompanhar o
+  **lag do consumer do Balance** ali — a métrica-chave da consistência eventual (§8.2).
+- **OpenSearch Dashboards (OTel)** → http://localhost:5601 — *Discover* (index pattern
+  `cash-management-logs*`) pra ver os **logs estruturados** dos dois serviços e seguir
+  uma requisição inteira pelo `correlationId`, cruzando Entries e Balance.
 
 ---
 
