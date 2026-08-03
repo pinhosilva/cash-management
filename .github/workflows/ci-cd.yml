@@ -59,7 +59,7 @@ jobs:
           ./gitleaks detect --source . --no-git --redact --config .gitleaks.toml
 
       - name: 'CodeQL init (C#, build-mode none)'
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v4.37.4
         with:
           languages: csharp
           build-mode: none
@@ -72,7 +72,7 @@ jobs:
           dotnet list src/CashManagement.Balance/CashManagement.Balance.sln package --vulnerable --include-transitive
 
       - name: 'CodeQL analyze'
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v4.37.4
 
   e2e: # ── Cross-service: sobe a stack inteira e roda o Smoke (Newman) ──
     needs: [entries, balance] # só faz sentido se os dois serviços passaram
